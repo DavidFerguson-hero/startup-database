@@ -1,0 +1,2062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Startup Database</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #263348;
+    --border: #334155;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --primary: #38bdf8;
+    --radius: 8px;
+    --panel-w: 440px;
+  }
+
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Header — two-column split */
+  header { display: flex; align-items: stretch; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; min-height: 88px; }
+  .header-left  { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; }
+  .header-divider { width: 1px; background: var(--border); margin: 0; }
+  .header-right { width: 320px; flex-shrink: 0; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+
+  .header-top { display: flex; align-items: center; gap: 10px; }
+  header h1 { font-size: 1rem; font-weight: 700; color: var(--primary); white-space: nowrap; }
+  .search-wrap { flex: 1; position: relative; }
+  .search-wrap input { width: 100%; padding: 7px 12px 7px 34px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 0.9rem; outline: none; }
+  .search-wrap input:focus { border-color: var(--primary); }
+  .search-wrap .icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 0.85rem; }
+  .header-filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  select { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: var(--radius); font-size: 0.78rem; cursor: pointer; outline: none; }
+  select:focus { border-color: var(--primary); }
+  .view-btns { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .view-btns button { padding: 5px 12px; background: none; border: none; color: var(--muted); font-size: 0.78rem; cursor: pointer; transition: all 0.15s; }
+  .view-btns button.active { background: var(--primary); color: #0f172a; font-weight: 600; }
+  .count-badge { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 9px; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+
+  /* Collections panel */
+  .col-panel-title { display: flex; align-items: center; justify-content: space-between; }
+  .col-panel-title h2 { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .col-new-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius); padding: 3px 8px; font-size: 0.75rem; cursor: pointer; transition: all 0.15s; }
+  .col-new-btn:hover { border-color: var(--primary); color: var(--primary); }
+  .col-new-form { display: flex; gap: 6px; }
+  .col-new-form input { flex: 1; padding: 5px 9px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 0.82rem; outline: none; }
+  .col-new-form input:focus { border-color: var(--primary); }
+  .col-new-form .btn-create { background: var(--primary); color: #0f172a; border: none; border-radius: var(--radius); padding: 5px 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+  .col-new-form .btn-cancel { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius); padding: 5px 8px; font-size: 0.78rem; cursor: pointer; }
+  .col-select-row { display: flex; gap: 6px; align-items: center; }
+  .col-select-row select { flex: 1; }
+  .col-del-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius); padding: 4px 7px; font-size: 0.8rem; cursor: pointer; transition: all 0.15s; }
+  .col-del-btn:hover { border-color: #f87171; color: #f87171; }
+  .col-info { font-size: 0.75rem; color: var(--muted); }
+  .col-info strong { color: var(--primary); }
+
+  /* Per-row collection button + popover */
+  .col-status { width: 100px; white-space: nowrap; }
+  .col-tags   { width: 160px; }
+  .col-bu     { width: 260px; }
+  .col-country{ width: 80px; white-space: nowrap; }
+  .col-add    { width: 36px; padding: 0 8px !important; text-align: center; }
+  .collect-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 50%; width: 22px; height: 22px; font-size: 0.85rem; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; padding: 0; }
+  .collect-btn:hover, .collect-btn.in-col { border-color: var(--primary); color: var(--primary); background: #38bdf810; }
+  .collect-popover { position: fixed; z-index: 200; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px #00000060; min-width: 180px; overflow: hidden; }
+  .collect-popover-title { padding: 7px 12px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 1px solid var(--border); }
+  .collect-popover-item { padding: 7px 12px; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.1s; }
+  .collect-popover-item:hover { background: var(--surface2); }
+  .collect-popover-item .check { color: var(--primary); font-size: 0.7rem; width: 12px; }
+  .collect-popover-empty { padding: 10px 12px; font-size: 0.8rem; color: var(--muted); font-style: italic; }
+
+  /* Main layout */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* List view */
+  #list-view { flex: 1; overflow-y: auto; padding: 0; }
+  #list-view table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  #list-view thead { position: sticky; top: 0; z-index: 10; }
+  #list-view thead th { background: var(--surface); padding: 10px 14px; text-align: left; font-weight: 600; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; }
+  #list-view thead th:hover { color: var(--text); }
+  #list-view tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+  #list-view tbody tr:hover { background: var(--surface); }
+  #list-view tbody tr.selected { background: var(--surface2); }
+  #list-view td { padding: 9px 14px; max-width: 280px; }
+  .name-cell { font-weight: 500; }
+  .desc-cell { color: var(--muted); font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+  .country-flag { font-size: 0.75rem; color: var(--muted); }
+  .col-status { width: 130px; white-space: nowrap; }
+  .col-tags   { width: 160px; }
+
+  /* Mindmap view */
+  #mindmap-view { flex: 1; overflow: hidden; position: relative; }
+  #mindmap-view svg { width: 100%; height: 100%; }
+  .mindmap-legend { position: absolute; bottom: 16px; left: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; font-size: 0.75rem; }
+  .mindmap-legend h4 { color: var(--muted); margin-bottom: 6px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .mindmap-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; color: var(--muted); pointer-events: none; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+  /* Status system */
+  .status-no-contact { background: #1e293b; color: #475569; border: 1px solid #334155; }
+  .status-met        { background: #1e293b; color: #64748b; border: 1px solid #334155; }
+  .status-early      { background: #1e3a8a20; color: #60a5fa; border: 1px solid #1e3a8a50; }
+  .status-advanced   { background: #92400e20; color: #fbbf24; border: 1px solid #92400e50; }
+  .status-live       { background: #06543020; color: #34d399; border: 1px solid #06543050; }
+  .status-default    { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  /* Editable status select in detail panel */
+  .status-select { border: none; border-radius: 12px; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 20px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 6px center; }
+  .status-select.status-no-contact { background-color: #1e293b; color: #475569; }
+  .status-select.status-met      { background-color: #1e293b; color: #64748b; }
+  .status-select.status-early    { background-color: #1e3a8a20; color: #60a5fa; }
+  .status-select.status-advanced { background-color: #92400e20; color: #fbbf24; }
+  .status-select.status-live     { background-color: #06543020; color: #34d399; }
+  .status-select option { background: #1e293b; color: #f1f5f9; font-weight: normal; }
+  /* Tag badges */
+  .tag-yes { display: inline-block; padding: 2px 7px; background: #14532d55; border: 1px solid #4ade8066; border-radius: 10px; font-size: 0.7rem; color: #4ade80; margin: 1px; white-space: nowrap; font-weight: 600; }
+  .tag-no  { display: inline-block; padding: 2px 7px; background: transparent; border: 1px solid var(--border); border-radius: 10px; font-size: 0.7rem; color: var(--muted); margin: 1px; white-space: nowrap; opacity: 0.5; }
+  .tag-chip { display: inline-block; padding: 2px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; font-size: 0.72rem; color: var(--muted); margin: 2px; }
+  .bu-chip { display: inline-block; padding: 2px 7px; background: #0f2a4a; border: 1px solid #1e4976; border-radius: 10px; font-size: 0.7rem; color: #7dd3fc; margin: 1px; white-space: nowrap; }
+
+  /* Detail panel */
+  #detail-panel { width: var(--panel-w); background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; right: 0; top: 57px; bottom: 0; z-index: 50; transform: translateX(100%); transition: transform 0.25s ease; }
+  #detail-panel.open { transform: translateX(0); }
+  .panel-header { padding: 16px 20px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; position: relative; }
+  .panel-close { position: absolute; right: 14px; top: 14px; background: none; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer; line-height: 1; padding: 4px; border-radius: 4px; }
+  .panel-close:hover { color: var(--text); background: var(--surface2); }
+  .panel-name { font-size: 1.1rem; font-weight: 700; padding-right: 32px; }
+  .panel-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; }
+  .panel-section h3 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px; }
+  .panel-website a { color: var(--primary); text-decoration: none; font-size: 0.85rem; word-break: break-all; }
+  .panel-website a:hover { text-decoration: underline; }
+  .panel-desc { font-size: 0.875rem; line-height: 1.6; color: var(--text); }
+  .panel-meta { display: flex; flex-direction: column; gap: 6px; }
+  .meta-row { display: flex; gap: 8px; font-size: 0.82rem; }
+  .meta-label { color: var(--muted); min-width: 120px; flex-shrink: 0; }
+  .meta-value { color: var(--text); }
+
+  /* Similar companies */
+  .similar-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .similar-chip { padding: 4px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; font-size: 0.78rem; cursor: pointer; transition: all 0.15s; color: var(--text); }
+  .similar-chip:hover { border-color: var(--primary); color: var(--primary); }
+
+  /* Updates */
+  .updates-list { display: flex; flex-direction: column; gap: 10px; }
+  .update-item { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; position: relative; }
+  .update-date { font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; }
+  .update-text { font-size: 0.85rem; line-height: 1.5; white-space: pre-wrap; }
+  .update-del { position: absolute; right: 8px; top: 8px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.8rem; padding: 2px 6px; border-radius: 4px; }
+  .update-del:hover { color: #f87171; background: #7f1d1d20; }
+  .add-update-form { display: flex; flex-direction: column; gap: 8px; }
+  .add-update-form textarea { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 8px 10px; font-size: 0.85rem; resize: vertical; min-height: 70px; outline: none; font-family: inherit; }
+  .add-update-form textarea:focus { border-color: var(--primary); }
+  .add-update-row { display: flex; gap: 8px; }
+  .add-update-row input[type=date] { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 6px 10px; font-size: 0.82rem; outline: none; }
+  .add-update-row input[type=date]:focus { border-color: var(--primary); }
+  .btn-primary { background: var(--primary); color: #0f172a; border: none; border-radius: var(--radius); padding: 7px 16px; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+  .btn-primary:hover { opacity: 0.85; }
+  .btn-folder { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 0.8rem; cursor: pointer; transition: all 0.15s; }
+  .btn-folder:hover { border-color: var(--primary); color: var(--primary); }
+
+  /* Add-startup modal */
+  .modal-overlay { position: fixed; inset: 0; background: #00000088; z-index: 300; }
+  .modal-card { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 301; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 620px; max-width: 95vw; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 24px 64px #00000080; }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .modal-header h2 { font-size: 1rem; font-weight: 700; }
+  .modal-header-close { background: none; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer; padding: 4px 6px; border-radius: 4px; line-height: 1; }
+  .modal-header-close:hover { background: var(--surface2); color: var(--text); }
+  .modal-body { overflow-y: auto; padding: 20px 22px; flex: 1; }
+  .modal-footer { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0; }
+  .modal-footer .btn-cancel-modal { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius); padding: 8px 18px; font-size: 0.85rem; cursor: pointer; }
+  .modal-footer .btn-cancel-modal:hover { border-color: var(--text); color: var(--text); }
+  /* Form layout */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-group label { font-size: 0.75rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .form-group input, .form-group select, .form-group textarea { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 7px 10px; font-size: 0.85rem; outline: none; font-family: inherit; transition: border-color 0.15s; width: 100%; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--primary); }
+  .form-group textarea { resize: vertical; min-height: 72px; }
+  .form-section-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 700; margin: 16px 0 10px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .form-section-title:first-child { margin-top: 0; border-top: none; padding-top: 0; }
+  .bu-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .bu-check-label { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: var(--text); cursor: pointer; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius); transition: all 0.15s; user-select: none; }
+  .bu-check-label:hover { border-color: var(--primary); }
+  .bu-check-label input { width: 14px; height: 14px; accent-color: var(--primary); cursor: pointer; flex-shrink: 0; margin: 0; }
+  .bu-check-label.checked { border-color: var(--primary); background: #38bdf810; color: var(--primary); }
+  .modal-error { background: #7f1d1d22; border: 1px solid #7f1d1d66; border-radius: var(--radius); padding: 9px 13px; font-size: 0.82rem; color: #fca5a5; margin-bottom: 14px; display: none; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* AI modal */
+  .ai-task-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .ai-task-card h3 { font-size: 0.88rem; font-weight: 700; margin-bottom: 4px; }
+  .ai-task-card p  { font-size: 0.78rem; color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
+  .ai-task-status { font-size: 0.78rem; margin-top: 10px; padding: 8px 10px; border-radius: var(--radius); display: none; }
+  .ai-task-status.running { background:#1e3a8a20; border:1px solid #1e3a8a50; color:#60a5fa; display:block; }
+  .ai-task-status.done    { background:#06543020; border:1px solid #06543050; color:#34d399; display:block; }
+  .ai-task-status.error   { background:#7f1d1d22; border:1px solid #7f1d1d66; color:#fca5a5; display:block; }
+  .ai-log-entry { border-bottom: 1px solid var(--border); padding: 9px 0; font-size: 0.8rem; }
+  .ai-log-entry:last-child { border-bottom: none; }
+  .ai-log-type { font-weight: 700; color: var(--primary); text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.06em; }
+  .ai-log-meta { color: var(--muted); font-size: 0.72rem; margin-top: 2px; }
+  .ai-log-detail { color: var(--text); margin-top: 4px; }
+  .ai-api-warn { background:#451a0320;border:1px solid #92400e50;border-radius:var(--radius);padding:9px 12px;font-size:0.78rem;color:#fbbf24;margin-bottom:14px; }
+
+  /* Modal tabs */
+  .modal-tabs { display: flex; border-bottom: 1px solid var(--border); margin: -20px -22px 20px; padding: 0 22px; }
+  .modal-tab { padding: 12px 18px; font-size: 0.85rem; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.15s; margin-bottom: -1px; background: none; border-top: none; border-left: none; border-right: none; }
+  .modal-tab:hover { color: var(--text); }
+  .modal-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .upload-drop-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 36px 24px; text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 16px; }
+  .upload-drop-zone:hover, .upload-drop-zone.drag-over { border-color: var(--primary); background: #38bdf808; }
+  .upload-drop-zone .drop-icon { font-size: 2.2rem; margin-bottom: 10px; }
+  .upload-drop-zone .drop-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 4px; }
+  .upload-drop-zone .drop-sub { font-size: 0.8rem; color: var(--muted); }
+  .upload-drop-zone .drop-chosen { font-size: 0.82rem; color: var(--primary); margin-top: 8px; font-weight: 600; }
+
+  /* Avoid badge */
+  .tag-avoid { display: inline-block; padding: 2px 7px; background: #4c0519aa; border: 1px solid #f4375066; border-radius: 10px; font-size: 0.7rem; color: #fda4af; margin: 1px; white-space: nowrap; font-weight: 600; }
+
+  /* Panel edit form */
+  .panel-edit-form { display: flex; flex-direction: column; gap: 14px; }
+  .panel-edit-form .form-group input,
+  .panel-edit-form .form-group select,
+  .panel-edit-form .form-group textarea { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 7px 10px; font-size: 0.85rem; outline: none; font-family: inherit; width: 100%; }
+  .panel-edit-form .form-group input:focus,
+  .panel-edit-form .form-group select:focus,
+  .panel-edit-form .form-group textarea:focus { border-color: var(--primary); }
+  .panel-edit-form .form-group textarea { resize: vertical; min-height: 72px; }
+  .panel-edit-form .form-group label { font-size: 0.72rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; display: block; }
+  .panel-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .panel-edit-grid .full { grid-column: 1 / -1; }
+  .panel-edit-actions { display: flex; gap: 8px; margin-top: 6px; }
+  .btn-edit-panel { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; background: var(--primary); border: none; border-radius: var(--radius); color: #0f172a; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+  .btn-edit-panel:hover { opacity: 0.85; }
+  .btn-save-edit { background: var(--primary); color: #0f172a; border: none; border-radius: var(--radius); padding: 7px 18px; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+  .btn-cancel-edit { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius); padding: 7px 14px; font-size: 0.82rem; cursor: pointer; }
+  .btn-cancel-edit:hover { border-color: var(--text); color: var(--text); }
+
+  /* Upload / toast */
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 20px; font-size: 0.85rem; z-index: 500; box-shadow: 0 8px 24px #00000060; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .toast.ok   { border-color: #4ade8066; color: #4ade80; }
+  .toast.err  { border-color: #f8717166; color: #f87171; }
+
+  /* Force graph */
+  .flink { fill: none; }
+  .fnode { transition: opacity 0.15s; }
+  .fnode text { pointer-events: none; }
+  .fnode-company { cursor: pointer; }
+  .fnode-theme, .fnode-category { cursor: grab; }
+  .fnode-theme:active, .fnode-category:active { cursor: grabbing; }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-icon { font-size: 2.5rem; margin-bottom: 12px; }
+
+  /* ─── Mobile toolbar (shown only on mobile) ───────────────────────────── */
+  .mobile-toolbar { display: none; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .mobile-filter-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: var(--radius); padding: 5px 10px; font-size: 0.78rem;
+    cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  }
+  .mobile-filter-btn:hover, .mobile-filter-btn.active {
+    border-color: var(--primary); color: var(--primary);
+  }
+
+  /* ─── Mobile responsive ───────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    /* Stack header vertically */
+    header { flex-direction: column; min-height: auto; }
+    .header-divider { display: none; }
+    .header-left { padding: 10px 12px; gap: 6px; }
+    .header-right {
+      width: 100%; border-top: 1px solid var(--border);
+      padding: 10px 12px; display: none;
+    }
+    .header-right.mobile-open { display: flex; }
+
+    /* Header-top: keep h1+search+AI+Add, hide view toggles and count */
+    .header-top .view-btns,
+    .header-top .count-badge { display: none; }
+    header h1 { font-size: 0.85rem; white-space: nowrap; }
+
+    /* Filters: hidden by default, toggled */
+    .header-filters { display: none; }
+    .header-filters.mobile-open { display: flex; flex-wrap: wrap; gap: 6px; }
+    .header-filters select { flex: 1; min-width: 130px; }
+
+    /* Mobile toolbar row */
+    .mobile-toolbar { display: flex; }
+
+    /* Table: show only Name (1), Theme (2), Category (3), + (8) */
+    #list-view th:nth-child(4), #list-view td:nth-child(4),
+    #list-view th:nth-child(5), #list-view td:nth-child(5),
+    #list-view th:nth-child(6), #list-view td:nth-child(6),
+    #list-view th:nth-child(7), #list-view td:nth-child(7) { display: none; }
+    .desc-cell { max-width: 160px; }
+
+    /* Detail panel: full-screen overlay */
+    #detail-panel {
+      width: 100% !important;
+      top: 0 !important;
+      border-left: none;
+      z-index: 200;
+    }
+    .panel-header > div:last-child { flex-wrap: wrap; gap: 6px; }
+    .btn-folder, .btn-edit-panel { padding: 5px 10px; font-size: 0.77rem; }
+
+    /* Modals: full screen, single column */
+    .modal-card {
+      position: fixed; inset: 0;
+      width: 100% !important; max-width: 100% !important;
+      max-height: 100% !important;
+      border-radius: 0; transform: none; top: 0; left: 0;
+    }
+    .form-grid { grid-template-columns: 1fr !important; }
+    .form-grid .full { grid-column: 1 !important; }
+    .panel-edit-grid { grid-template-columns: 1fr !important; }
+    .panel-edit-grid .full { grid-column: 1 !important; }
+    .bu-grid { grid-template-columns: repeat(2, 1fr); }
+
+    /* Larger tap targets */
+    select, .form-group input, .form-group textarea { font-size: 16px; } /* prevent zoom on iOS */
+    .btn-primary, .btn-save-edit { padding: 10px 20px; }
+  }
+
+  @media (max-width: 480px) {
+    /* AI button: icon only */
+    .ai-btn-text { display: none; }
+  }
+
+  /* Prevent background scroll when panel is open on mobile */
+  @media (max-width: 768px) {
+    body.panel-open { overflow: hidden; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <!-- Left: search + filters -->
+  <div class="header-left">
+    <div class="header-top">
+      <h1>⚡ Startup Database</h1>
+      <div class="search-wrap">
+        <span class="icon">🔍</span>
+        <input type="text" id="search" placeholder="Search name, description, category…" autocomplete="off">
+      </div>
+      <div class="view-btns">
+        <button class="active" onclick="switchView('list')">≡ List</button>
+        <button onclick="switchView('mindmap')">⬡ Map</button>
+      </div>
+      <span class="count-badge" id="count-badge">– startups</span>
+      <button onclick="openAiModal()" style="white-space:nowrap;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:7px 14px;font-size:0.85rem;font-weight:600;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='#a78bfa';this.style.color='#a78bfa'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text)'">🤖 AI</button>
+      <button onclick="openAddModal()" style="white-space:nowrap;background:var(--primary);color:#0f172a;border:none;border-radius:var(--radius);padding:7px 18px;font-size:0.88rem;font-weight:700;cursor:pointer;transition:opacity 0.15s;letter-spacing:0.01em;" onmouseover="this.style.opacity='.82'" onmouseout="this.style.opacity='1'">+ Add startup</button>
+    </div>
+    <!-- Mobile-only toolbar: view toggle + count + filter/collections toggles -->
+    <div class="mobile-toolbar">
+      <div class="view-btns" id="mobile-view-btns">
+        <button class="active" onclick="switchView('list')">≡ List</button>
+        <button onclick="switchView('mindmap')">⬡ Map</button>
+      </div>
+      <span class="count-badge" id="count-badge-mobile" style="display:block"></span>
+      <button class="mobile-filter-btn" id="mobile-filter-btn" onclick="toggleMobileFilters()">⚙ Filters ▾</button>
+      <button class="mobile-filter-btn" id="mobile-col-btn" onclick="toggleMobileCollections()">📚 Collections ▾</button>
+    </div>
+
+    <div class="header-filters">
+      <select id="filter-theme"><option value="">All themes</option></select>
+      <select id="filter-category"><option value="">All categories</option></select>
+      <select id="filter-bu"><option value="">All business units</option></select>
+      <select id="filter-status"><option value="">All statuses</option></select>
+      <select id="filter-edf-pv"><option value="">EDF PV portfolio</option><option value="Yes">EDF PV: Yes</option><option value="No">EDF PV: No</option></select>
+      <select id="filter-country"><option value="">All countries</option></select>
+    </div>
+  </div>
+
+  <div class="header-divider"></div>
+
+  <!-- Right: Collections -->
+  <div class="header-right">
+    <div class="col-panel-title">
+      <h2>Collections</h2>
+      <button class="col-new-btn" onclick="showNewColForm()">+ New</button>
+    </div>
+    <div class="col-new-form" id="col-new-form" style="display:none">
+      <input type="text" id="col-new-input" placeholder="Collection name…" onkeydown="if(event.key==='Enter')createCollection()">
+      <button class="btn-create" onclick="createCollection()">Create</button>
+      <button class="btn-cancel" onclick="hideNewColForm()">✕</button>
+    </div>
+    <div class="col-select-row">
+      <select id="col-select" onchange="selectCollection(this.value)">
+        <option value="">All startups</option>
+      </select>
+      <button class="col-del-btn" id="col-del-btn" style="display:none" title="Delete collection" onclick="deleteCollection()">🗑</button>
+      <button class="col-del-btn" id="col-download-btn" title="Download as Excel" onclick="downloadCollection()" style="border-color:var(--border)">⬇</button>
+    </div>
+    <div class="col-info" id="col-info"></div>
+  </div>
+</header>
+
+<!-- Global collection popover (one instance, repositioned per row) -->
+<div class="collect-popover" id="collect-popover" style="display:none"></div>
+
+<div class="main">
+  <div id="list-view">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortBy('name')">Company ↕</th>
+          <th onclick="sortBy('theme')">Theme ↕</th>
+          <th>Category</th>
+          <th class="col-bu">Business Units</th>
+          <th onclick="sortBy('status')" class="col-status">Status ↕</th>
+          <th class="col-tags">Tags</th>
+          <th onclick="sortBy('country')" class="col-country">Country ↕</th>
+          <th class="col-add"></th>
+        </tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+    </table>
+    <div class="empty" id="empty-state" style="display:none">
+      <div class="empty-icon">🔍</div>
+      <div>No startups match your search</div>
+    </div>
+  </div>
+
+  <div id="mindmap-view" style="display:none">
+    <svg id="mindmap-svg"></svg>
+    <div class="mindmap-legend" id="mindmap-legend"></div>
+    <div class="mindmap-hint">Hover to explore connections · Click a company to open · Scroll to zoom · Drag nodes</div>
+  </div>
+
+  <div id="detail-panel">
+    <div class="panel-header">
+      <button class="panel-close" onclick="closeDetail()">✕</button>
+      <div class="panel-name" id="panel-name"></div>
+      <div class="panel-badges" id="panel-badges"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-folder" id="folder-btn" onclick="openFolder()">📁 Open Folder</button>
+        <button class="btn-folder" id="panel-collect-btn" onclick="openPanelCollectMenu(event)">+ Collection</button>
+        <button class="btn-edit-panel" id="panel-edit-btn" onclick="openPanelEdit()">✏ Edit</button>
+      </div>
+    </div>
+    <div class="panel-body" id="panel-body"></div>
+  </div>
+</div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────
+const THEME_COLORS = {
+  'AI & Digital':                '#6366f1',
+  'Renewables':                  '#22c55e',
+  'Energy Storage & Flexibility':'#f59e0b',
+  'Buildings & Cities':          '#f97316',
+  'Environment & Sustainability':'#14b8a6',
+  'Nuclear & Deep Tech':         '#8b5cf6',
+  'Hydrogen & Fuels':            '#06b6d4',
+  'Industry & Manufacturing':    '#64748b',
+  'Energy (General)':            '#eab308',
+  'Services':                    '#ec4899',
+  'Other':                       '#6b7280',
+  'Uncategorised':               '#475569',
+};
+
+// ── State ──────────────────────────────────────────────────────────────────
+let allStartups = [];
+let filtered = [];
+let currentView = 'list';
+let sortKey = 'name', sortDir = 1;
+let activeCompany = null;
+let panelEditMode = false;
+let collections = {};        // { "name": ["Company A", ...], ... }
+let activeCollection = '';   // '' = show all
+let sharepointBase = '';     // set from /api/config if SHAREPOINT_FOLDER_BASE env var is present
+// ── Boot ───────────────────────────────────────────────────────────────────
+async function init() {
+  const [startupsRes, colsRes, cfgRes] = await Promise.all([
+    fetch('/api/startups'),
+    fetch('/api/collections'),
+    fetch('/api/config'),
+  ]);
+  allStartups = await startupsRes.json();
+  collections = await colsRes.json();
+  const cfg = await cfgRes.json();
+  sharepointBase = cfg.sharepoint_base || '';
+  populateFilters();
+  renderCollectionSelect();
+  applyFilters();
+}
+
+function populateFilters() {
+  const themes     = [...new Set(allStartups.map(s => s.theme).filter(Boolean))].sort();
+  const categories = [...new Set(allStartups.map(s => s.category).filter(Boolean))].sort();
+  const bus        = [...new Set(allStartups.flatMap(s => (s.business_unit || '').split(',').map(b => b.trim()).filter(Boolean)))].sort();
+  const statuses   = [...new Set(allStartups.map(s => s.status).filter(Boolean))].sort();
+  const countries  = [...new Set(allStartups.map(s => s.country).filter(Boolean))].sort();
+
+  addOptions('filter-theme', themes);
+  addOptions('filter-category', categories);
+  addOptions('filter-bu', bus);
+  addOptions('filter-status', statuses);
+  addOptions('filter-country', countries);
+  // tag filters are static (Yes/No) — no dynamic options needed
+}
+
+function addOptions(id, values) {
+  const sel = document.getElementById(id);
+  values.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = v;
+    sel.appendChild(opt);
+  });
+}
+
+// ── Filtering & Search ─────────────────────────────────────────────────────
+function applyFilters() {
+  const q        = document.getElementById('search').value.toLowerCase().trim();
+  const theme    = document.getElementById('filter-theme').value;
+  const category = document.getElementById('filter-category').value;
+  const bu       = document.getElementById('filter-bu').value;
+  const status   = document.getElementById('filter-status').value;
+  const edPv     = document.getElementById('filter-edf-pv').value;
+  const nda      = document.getElementById('filter-nda')?.value || '';
+  const country  = document.getElementById('filter-country').value;
+
+  const colMembers = activeCollection ? new Set(collections[activeCollection] || []) : null;
+
+  filtered = allStartups.filter(s => {
+    if (colMembers && !colMembers.has(s.name)) return false;
+    if (theme    && s.theme !== theme) return false;
+    if (category && s.category !== category) return false;
+    if (status   && s.status !== status) return false;
+    if (bu      && !(s.business_unit || '').split(',').map(b => b.trim()).includes(bu)) return false;
+    if (edPv    && s.edf_pv !== edPv) return false;
+    if (nda     && s.nda   !== nda)   return false;
+    if (country && s.country !== country) return false;
+    if (q) {
+      const haystack = [s.name, s.description, s.category, s.country, s.business_unit,
+                        s.key_contact, s.key_contact_email, s.relationship_owner]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  filtered.sort((a, b) => {
+    const av = (a[sortKey] || '').toString().toLowerCase();
+    const bv = (b[sortKey] || '').toString().toLowerCase();
+    return sortDir * av.localeCompare(bv);
+  });
+
+  const countText = `${filtered.length} of ${allStartups.length}`;
+  document.getElementById('count-badge').textContent = countText;
+  const mb = document.getElementById('count-badge-mobile');
+  if (mb) mb.textContent = countText;
+
+  if (currentView === 'list') renderList();
+  else renderMindmap();
+}
+
+// ── List View ──────────────────────────────────────────────────────────────
+function renderList() {
+  const tbody = document.getElementById('table-body');
+  const empty = document.getElementById('empty-state');
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = filtered.map(s => `
+    <tr onclick="showDetail('${escHtml(s.name)}')" class="${activeCompany === s.name ? 'selected' : ''}">
+      <td><div class="name-cell">${escHtml(s.name)}</div></td>
+      <td><span class="badge" style="background:${THEME_COLORS[s.theme] || '#6b7280'}22;color:${THEME_COLORS[s.theme] || '#6b7280'};border:1px solid ${THEME_COLORS[s.theme] || '#6b7280'}44">${escHtml(s.theme || '—')}</span></td>
+      <td class="desc-cell">${escHtml(s.primary_category || '—')}</td>
+      <td class="col-bu">${buChips(s.business_unit)}</td>
+      <td class="col-status">${statusBadge(s.status)}</td>
+      <td class="col-tags">${rowTagChips(s)}</td>
+      <td class="country-flag col-country">${escHtml(s.country || '—')}</td>
+      <td class="col-add" onclick="event.stopPropagation()">
+        <button class="collect-btn ${isInAnyCollection(s.name) ? 'in-col' : ''}"
+                onclick="openCollectMenu(event, '${escHtml(s.name)}')" title="Add to collection">+</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortDir *= -1;
+  else { sortKey = key; sortDir = 1; }
+  applyFilters();
+}
+
+// ── Force Graph (Obsidian-style) ────────────────────────────────────────────
+function renderMindmap() {
+  const container = document.getElementById('mindmap-view');
+  const svg = d3.select('#mindmap-svg');
+  svg.selectAll('*').remove();
+
+  const W = container.clientWidth  || 900;
+  const H = container.clientHeight || 600;
+
+  // ── Build nodes & links ──────────────────────────────────────
+  const themeMap = {};
+  filtered.forEach(s => {
+    const theme = s.theme || 'Uncategorised';
+    const cat   = s.primary_category || 'Uncategorised';
+    if (!themeMap[theme]) themeMap[theme] = {};
+    if (!themeMap[theme][cat]) themeMap[theme][cat] = [];
+    themeMap[theme][cat].push(s);
+  });
+
+  const nodes = [], links = [], catSeen = new Set();
+  const themeList = Object.keys(themeMap);
+
+  themeList.forEach((theme, ti) => {
+    // Pre-position themes around a circle so the sim converges quickly
+    const angle = (ti / themeList.length) * 2 * Math.PI - Math.PI / 2;
+    const tr = Math.min(W, H) * 0.27;
+    const themeId = `t:${theme}`;
+    nodes.push({ id: themeId, label: theme, type: 'theme', theme,
+                 count: Object.values(themeMap[theme]).flat().length,
+                 x: W/2 + tr * Math.cos(angle), y: H/2 + tr * Math.sin(angle) });
+
+    Object.entries(themeMap[theme]).forEach(([cat, companies], ci) => {
+      const catId = `c:${cat}`;
+      if (!catSeen.has(catId)) {
+        catSeen.add(catId);
+        const cr = tr + 90, spreadAngle = angle + (ci - Object.keys(themeMap[theme]).length / 2) * 0.35;
+        nodes.push({ id: catId, label: cat, type: 'category', theme,
+                     count: companies.length,
+                     x: W/2 + cr * Math.cos(spreadAngle), y: H/2 + cr * Math.sin(spreadAngle) });
+      }
+      links.push({ source: themeId, target: catId, ltype: 'tc' });
+
+      companies.forEach(c => {
+        const cId = `co:${c.name}`;
+        nodes.push({ id: cId, label: c.name, type: 'company', theme, data: c,
+                     x: W/2 + (tr + 160) * Math.cos(angle) + (Math.random() - 0.5) * 80,
+                     y: H/2 + (tr + 160) * Math.sin(angle) + (Math.random() - 0.5) * 80 });
+        links.push({ source: catId, target: cId, ltype: 'cc' });
+      });
+    });
+  });
+
+  // ── SVG defs: glow filters ───────────────────────────────────
+  const defs = svg.append('defs');
+  ['glow', 'glow-strong'].forEach((id, i) => {
+    const f = defs.append('filter').attr('id', id)
+      .attr('x', '-60%').attr('y', '-60%').attr('width', '220%').attr('height', '220%');
+    f.append('feGaussianBlur').attr('in', 'SourceGraphic')
+      .attr('stdDeviation', i === 0 ? '2.5' : '5').attr('result', 'blur');
+    const fm = f.append('feMerge');
+    fm.append('feMergeNode').attr('in', 'blur');
+    fm.append('feMergeNode').attr('in', 'SourceGraphic');
+  });
+
+  // ── Zoom / pan ───────────────────────────────────────────────
+  const zoomBeh = d3.zoom().scaleExtent([0.07, 6])
+    .on('zoom', e => {
+      g.attr('transform', e.transform);
+      const k = e.transform.k;
+      // Cat labels fade in above zoom 0.6
+      g.selectAll('.cat-label').style('opacity', k < 0.6 ? 0 : Math.min(1, (k - 0.6) * 4));
+      // Company labels on hover only — but rescale their font so they don't shrink away
+    });
+  svg.call(zoomBeh).on('dblclick.zoom', null);
+  const g = svg.append('g');
+
+  // ── Force simulation ──────────────────────────────────────────
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id)
+      .distance(d => d.ltype === 'tc' ? 130 : 65)
+      .strength(d => d.ltype === 'tc' ? 0.7 : 0.5))
+    .force('charge', d3.forceManyBody()
+      .strength(d => ({ theme: -700, category: -200, company: -40 }[d.type]))
+      .distanceMax(500))
+    .force('center', d3.forceCenter(W / 2, H / 2).strength(0.04))
+    .force('collide', d3.forceCollide()
+      .radius(d => ({ theme: 38, category: 22, company: 10 }[d.type])).strength(0.7))
+    .alphaDecay(0.012)
+    .velocityDecay(0.38);
+
+  // ── Links ────────────────────────────────────────────────────
+  const linkSel = g.append('g').attr('class', 'g-links')
+    .selectAll('line').data(links).join('line')
+    .attr('class', 'flink')
+    .attr('stroke-opacity', d => d.ltype === 'tc' ? 0.4 : 0.18)
+    .attr('stroke-width',   d => d.ltype === 'tc' ? 1.5 : 0.7);
+
+  // Stroke colour resolved after simulation initialises source/target objects
+  function styleLinks() {
+    linkSel.attr('stroke', d => THEME_COLORS[(d.source.theme || d.source)] || '#334155');
+  }
+
+  // ── Node groups ───────────────────────────────────────────────
+  const nodeSel = g.append('g').attr('class', 'g-nodes')
+    .selectAll('g').data(nodes).join('g')
+    .attr('class', d => `fnode fnode-${d.type}`)
+    .call(d3.drag()
+      .on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+      .on('end',   (ev, d) => { if (!ev.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }))
+    .on('click',     (ev, d) => { ev.stopPropagation(); if (d.type === 'company') showDetail(d.data.name); })
+    .on('mouseover', (ev, d) => hoverNode(d, true))
+    .on('mouseout',  (ev, d) => hoverNode(d, false));
+
+  // Circles
+  const nodeR = { theme: 22, category: 10, company: 5 };
+  nodeSel.append('circle')
+    .attr('r', d => nodeR[d.type])
+    .attr('fill',   d => (THEME_COLORS[d.theme] || '#6b7280') + (d.type === 'company' ? 'bb' : '28'))
+    .attr('stroke', d =>  THEME_COLORS[d.theme] || '#6b7280')
+    .attr('stroke-width', d => ({ theme: 2.5, category: 1.5, company: 1 }[d.type]))
+    .attr('filter', d => d.type === 'theme' ? 'url(#glow-strong)' : d.type === 'category' ? 'url(#glow)' : null);
+
+  // Theme labels — always visible
+  nodeSel.filter(d => d.type === 'theme').append('text')
+    .attr('text-anchor', 'middle').attr('dy', -36)
+    .style('font-size', '15px').style('font-weight', '700')
+    .style('fill', d => THEME_COLORS[d.theme] || '#f1f5f9')
+    .style('filter', 'url(#glow)')
+    .text(d => d.label);
+
+  nodeSel.filter(d => d.type === 'theme').append('text')
+    .attr('text-anchor', 'middle').attr('dy', -21)
+    .style('font-size', '10px').style('font-weight', '400')
+    .style('fill', d => (THEME_COLORS[d.theme] || '#6b7280') + 'bb')
+    .text(d => `${d.count} startups`);
+
+  // Category labels — fade in on zoom
+  nodeSel.filter(d => d.type === 'category').append('text')
+    .attr('class', 'cat-label')
+    .attr('text-anchor', 'middle').attr('dy', -14)
+    .style('font-size', '8.5px').style('fill', '#94a3b8')
+    .style('opacity', 0)
+    .text(d => `${d.label} (${d.count})`);
+
+  // Company labels — hover only
+  nodeSel.filter(d => d.type === 'company').append('text')
+    .attr('class', 'company-label')
+    .attr('text-anchor', 'middle').attr('dy', -9)
+    .style('font-size', '8px').style('fill', '#e2e8f0')
+    .style('opacity', 0)
+    .text(d => d.label);
+
+  // ── Hover highlight ───────────────────────────────────────────
+  function hoverNode(d, on) {
+    const connected = new Set([d.id]);
+    // Walk one level in each direction
+    linkSel.each(l => {
+      if (l.source.id === d.id) connected.add(l.target.id);
+      if (l.target.id === d.id) connected.add(l.source.id);
+    });
+    // For category/theme, also include their children's children
+    if (d.type !== 'company') {
+      const secondPass = new Set(connected);
+      linkSel.each(l => {
+        if (secondPass.has(l.source.id)) connected.add(l.target.id);
+        if (secondPass.has(l.target.id)) connected.add(l.source.id);
+      });
+    }
+
+    nodeSel.style('opacity', on ? n => connected.has(n.id) ? 1 : 0.08 : null);
+    nodeSel.selectAll('.company-label')
+      .style('opacity', on ? function(n) { return connected.has(n.id) ? 1 : 0; } : 0);
+    linkSel.style('opacity', on
+      ? l => (connected.has(l.source.id) && connected.has(l.target.id)) ? 0.9 : 0.03
+      : null);
+  }
+
+  // ── Tick ─────────────────────────────────────────────────────
+  let firstTick = true;
+  sim.on('tick', () => {
+    if (firstTick) { styleLinks(); firstTick = false; }
+    linkSel
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    nodeSel.attr('transform', d => `translate(${d.x ?? 0},${d.y ?? 0})`);
+  });
+
+  // ── Legend ────────────────────────────────────────────────────
+  const legend = document.getElementById('mindmap-legend');
+  legend.innerHTML = '<h4>Themes</h4>' + Object.entries(THEME_COLORS)
+    .filter(([t]) => themeMap[t])
+    .map(([t, c]) => `<div class="legend-item">
+      <div class="legend-dot" style="background:${c};box-shadow:0 0 6px ${c}99"></div>
+      <span>${t} <span style="color:${c}99;font-size:0.7em">(${Object.values(themeMap[t]).flat().length})</span></span>
+    </div>`).join('');
+}
+
+// ── Detail Panel ───────────────────────────────────────────────────────────
+function showDetail(name) {
+  const s = allStartups.find(x => x.name === name);
+  if (!s) return;
+
+  activeCompany = name;
+  document.getElementById('panel-name').textContent = name;
+
+  // Status as editable dropdown
+  const statusCls = STATUS_CLS[s.status] || 'status-default';
+  const statusOpts = ['No contact','Met but no live discussions','Early Exploration','Advanced discussions','Live collaboration'];
+  const statusSelectHtml = `<select id="status-select" class="status-select ${statusCls}" onchange="updateStatus('${escHtml(s.name)}', this.value)">
+    ${statusOpts.map(o => `<option value="${escHtml(o)}"${o === s.status ? ' selected' : ''}>${escHtml(o)}</option>`).join('')}
+  </select>`;
+  document.getElementById('panel-badges').innerHTML =
+    statusSelectHtml +
+    (s.edf_pv === 'Yes' ? ' <span class="tag-yes">EDF PV</span>' : '') +
+    (s.nda    === 'Yes' ? ' <span class="tag-yes">NDA</span>'    : '') +
+    (s.avoid  === 'Yes' ? ' <span class="tag-avoid">Avoid</span>' : '') +
+    (s.country ? ` <span class="badge status-default">🌍 ${escHtml(s.country)}</span>` : '');
+
+  const editBtn = document.getElementById('panel-edit-btn');
+  if (editBtn) editBtn.style.display = panelEditMode ? 'none' : '';
+
+  if (panelEditMode) {
+    renderPanelEditForm(s);
+  } else {
+    renderPanelView(s);
+  }
+
+  document.getElementById('detail-panel').classList.add('open');
+  document.body.classList.add('panel-open');
+  updatePanelCollectBtn();
+  updateFolderBtn();
+
+  if (currentView === 'list') {
+    document.querySelectorAll('#table-body tr').forEach(tr => tr.classList.remove('selected'));
+    const rows = [...document.querySelectorAll('#table-body tr')];
+    const row = rows.find(tr => tr.querySelector('.name-cell')?.textContent === name);
+    if (row) { row.classList.add('selected'); row.scrollIntoView({ block: 'nearest' }); }
+  }
+}
+
+function renderPanelView(s) {
+  const similar = computeSimilar(s, allStartups);
+  document.getElementById('panel-body').innerHTML = `
+    ${s.website && s.website !== '-' ? `
+    <div class="panel-section">
+      <h3>Website</h3>
+      <div class="panel-website"><a href="${escHtml(s.website)}" target="_blank" rel="noopener">${escHtml(s.website)}</a></div>
+    </div>` : ''}
+
+    ${s.description ? `
+    <div class="panel-section">
+      <h3>Description</h3>
+      <div class="panel-desc">${escHtml(s.description)}</div>
+    </div>` : ''}
+
+    <div class="panel-section">
+      <h3>Details</h3>
+      <div class="panel-meta">
+        ${s.theme ? `<div class="meta-row"><span class="meta-label">Theme</span><span class="meta-value"><span class="badge" style="background:${THEME_COLORS[s.theme]}22;color:${THEME_COLORS[s.theme]};border:1px solid ${THEME_COLORS[s.theme]}44">${escHtml(s.theme)}</span></span></div>` : ''}
+        ${s.category ? `<div class="meta-row"><span class="meta-label">Category</span><span class="meta-value">${s.tags.map(t => `<span class="tag-chip">${escHtml(t)}</span>`).join('')}</span></div>` : ''}
+        ${s.business_unit ? `<div class="meta-row"><span class="meta-label">Business units</span><span class="meta-value" style="font-size:0.8rem">${escHtml(s.business_unit)}</span></div>` : ''}
+        ${s.status_comment ? `<div class="meta-row"><span class="meta-label">Status note</span><span class="meta-value" style="font-size:0.8rem">${escHtml(s.status_comment)}</span></div>` : ''}
+        ${s.added_by ? `<div class="meta-row"><span class="meta-label">Added by</span><span class="meta-value">${escHtml(s.added_by)}</span></div>` : ''}
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Relationship</h3>
+      <div class="panel-meta">
+        <div class="meta-row"><span class="meta-label">Key contact</span><span class="meta-value">${s.key_contact ? escHtml(s.key_contact) : '<span style="color:var(--muted)">—</span>'}</span></div>
+        <div class="meta-row"><span class="meta-label">Email</span><span class="meta-value">${s.key_contact_email ? `<a href="mailto:${escHtml(s.key_contact_email)}" style="color:var(--primary)">${escHtml(s.key_contact_email)}</a>` : '<span style="color:var(--muted)">—</span>'}</span></div>
+        ${s.relationship_owner ? `<div class="meta-row"><span class="meta-label">Rel. owner</span><span class="meta-value">${escHtml(s.relationship_owner)}</span></div>` : ''}
+        ${s.avoid === 'Yes' ? `<div class="meta-row"><span class="meta-label">Flag</span><span class="meta-value"><span class="tag-avoid">Avoid</span></span></div>` : ''}
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3 style="display:flex;align-items:center;gap:8px">
+        Similar Startups
+        ${_findSimilarRunning === s.name
+          ? `<span style="font-size:0.72rem;color:#a78bfa;font-weight:400;text-transform:none;letter-spacing:0">⏳ Finding…</span>`
+          : `<button onclick="runFindSimilar('${escHtml(s.name)}')" style="background:none;border:1px solid #4c1d9580;color:#a78bfa;border-radius:20px;padding:2px 9px;font-size:0.68rem;font-weight:600;cursor:pointer;transition:all 0.15s;text-transform:none;letter-spacing:0" onmouseover="this.style.background='#4c1d9530'" onmouseout="this.style.background='none'">🤖 Find more</button>`
+        }
+      </h3>
+      ${similar.length > 0
+        ? `<div class="similar-list">${similar.map(n => `<span class="similar-chip" onclick="showDetail('${escHtml(n)}')">${escHtml(n)}</span>`).join('')}</div>`
+        : `<div style="color:var(--muted);font-size:0.8rem">No similar startups found yet.</div>`
+      }
+    </div>
+
+    <div class="panel-section" id="updates-section">
+      <h3>Updates & Notes</h3>
+      <div class="add-update-form">
+        <textarea id="update-text" placeholder="Add a note or update…"></textarea>
+        <div class="add-update-row">
+          <input type="date" id="update-date" value="${todayStr()}">
+          <button class="btn-primary" onclick="submitUpdate('${escHtml(s.name)}')">Add Note</button>
+        </div>
+      </div>
+      <div class="updates-list" id="updates-list" style="margin-top:12px">
+        ${renderUpdates(s.updates, s.name)}
+      </div>
+    </div>
+  `;
+}
+
+function renderPanelEditForm(s) {
+  const cats = [...new Set(allStartups.map(x => x.primary_category).filter(Boolean))].sort();
+  const catOpts = cats.map(c => `<option value="${escHtml(c)}"${c === s.category ? ' selected' : ''}>${escHtml(c)}</option>`).join('');
+  const statOpts = ['No contact','Met but no live discussions','Early Exploration','Advanced discussions','Live collaboration']
+    .map(o => `<option value="${escHtml(o)}"${o === s.status ? ' selected' : ''}>${escHtml(o)}</option>`).join('');
+  const buHtml = BU_OPTIONS.map(bu => {
+    const checked = (s.business_unit || '').split(',').map(b => b.trim()).includes(bu);
+    return `<label class="bu-check-label${checked ? ' checked' : ''}" style="font-size:0.78rem">
+      <input type="checkbox" value="${escHtml(bu)}" ${checked ? 'checked' : ''} onchange="this.closest('label').classList.toggle('checked',this.checked)">
+      ${escHtml(bu)}
+    </label>`;
+  }).join('');
+
+  document.getElementById('panel-body').innerHTML = `
+    <div class="panel-edit-form">
+      <div class="panel-edit-grid">
+
+        <div class="form-group full"><label>Website</label>
+          <input type="url" id="pe-website" value="${escHtml(s.website || '')}" placeholder="https://…"></div>
+
+        <div class="form-group"><label>Country</label>
+          <input type="text" id="pe-country" value="${escHtml(s.country || '')}"></div>
+
+        <div class="form-group"><label>Category</label>
+          <select id="pe-category"><option value="">— none —</option>${catOpts}</select></div>
+
+        <div class="form-group"><label>Status</label>
+          <select id="pe-status">${statOpts}</select></div>
+
+        <div class="form-group"><label>EDF PV portfolio</label>
+          <select id="pe-edf-pv">
+            <option value="No"${s.edf_pv !== 'Yes' ? ' selected' : ''}>No</option>
+            <option value="Yes"${s.edf_pv === 'Yes' ? ' selected' : ''}>Yes</option>
+          </select></div>
+
+        <div class="form-group"><label>NDA signed</label>
+          <select id="pe-nda">
+            <option value="No"${s.nda !== 'Yes' ? ' selected' : ''}>No</option>
+            <option value="Yes"${s.nda === 'Yes' ? ' selected' : ''}>Yes</option>
+          </select></div>
+
+        <div class="form-group full"><label>Description</label>
+          <textarea id="pe-description">${escHtml(s.description || '')}</textarea></div>
+
+        <div class="form-group full"><label>Status comment</label>
+          <input type="text" id="pe-status-comment" value="${escHtml(s.status_comment || '')}"></div>
+
+        <div class="form-group"><label>Added by</label>
+          <input type="text" id="pe-added-by" value="${escHtml(s.added_by || '')}"></div>
+
+        <div class="form-group"><label>Relationship owner</label>
+          <input type="text" id="pe-relationship-owner" value="${escHtml(s.relationship_owner || '')}"></div>
+
+        <div class="form-group"><label>Key contact name</label>
+          <input type="text" id="pe-key-contact" value="${escHtml(s.key_contact || '')}"></div>
+
+        <div class="form-group"><label>Key contact email</label>
+          <input type="email" id="pe-key-contact-email" value="${escHtml(s.key_contact_email || '')}"></div>
+
+        <div class="form-group"><label>Avoid flag</label>
+          <select id="pe-avoid">
+            <option value="No"${s.avoid !== 'Yes' ? ' selected' : ''}>No</option>
+            <option value="Yes"${s.avoid === 'Yes' ? ' selected' : ''}>Yes</option>
+          </select></div>
+
+        <div class="form-group full"><label>Business units</label>
+          <div class="bu-grid" style="margin-top:4px">${buHtml}</div></div>
+
+      </div>
+      <div class="panel-edit-actions">
+        <button class="btn-save-edit" onclick="savePanelEdit('${escHtml(s.name)}')">Save changes</button>
+        <button class="btn-cancel-edit" onclick="cancelPanelEdit()">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function openPanelEdit() {
+  panelEditMode = true;
+  showDetail(activeCompany);
+}
+
+function cancelPanelEdit() {
+  panelEditMode = false;
+  showDetail(activeCompany);
+}
+
+async function savePanelEdit(name) {
+  const bus = [...document.querySelectorAll('.panel-edit-form .bu-grid input[type=checkbox]:checked')].map(cb => cb.value);
+  const payload = {
+    name,
+    website:           document.getElementById('pe-website').value.trim() || null,
+    country:           document.getElementById('pe-country').value.trim() || null,
+    category:          document.getElementById('pe-category').value || null,
+    status:            document.getElementById('pe-status').value,
+    description:       document.getElementById('pe-description').value.trim() || null,
+    status_comment:    document.getElementById('pe-status-comment').value.trim() || null,
+    added_by:          document.getElementById('pe-added-by').value.trim() || null,
+    relationship_owner:document.getElementById('pe-relationship-owner').value.trim() || null,
+    key_contact:       document.getElementById('pe-key-contact').value.trim() || null,
+    key_contact_email: document.getElementById('pe-key-contact-email').value.trim() || null,
+    avoid:             document.getElementById('pe-avoid').value,
+    edf_pv:            document.getElementById('pe-edf-pv').value,
+    nda:               document.getElementById('pe-nda').value,
+    business_units:    bus,
+  };
+  const btn = document.querySelector('.btn-save-edit');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  try {
+    const res = await fetch('/api/startups/edit', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.ok) {
+      panelEditMode = false;
+      const r = await fetch('/api/startups');
+      allStartups = await r.json();
+      applyFilters();
+      showDetail(name);
+      showToast('Changes saved', 'ok');
+    } else {
+      showToast('Error: ' + (data.error || 'unknown'), 'err');
+      btn.textContent = 'Save changes'; btn.disabled = false;
+    }
+  } catch(e) {
+    showToast('Network error', 'err');
+    btn.textContent = 'Save changes'; btn.disabled = false;
+  }
+}
+
+function renderUpdates(updates, name) {
+  if (!updates || updates.length === 0) return '<div style="color:var(--muted);font-size:0.82rem">No updates yet.</div>';
+  return updates.map((u, i) => `
+    <div class="update-item">
+      <div class="update-date">
+        ${escHtml(u.date)}${u.author ? `<span style="color:var(--muted);font-size:0.73rem;font-weight:400;margin-left:6px">by ${escHtml(u.author)}</span>` : ''}
+      </div>
+      <div class="update-text">${escHtml(u.text)}</div>
+      <button class="update-del" onclick="deleteUpdate('${escHtml(name)}', ${i})" title="Delete">✕</button>
+    </div>
+  `).join('');
+}
+
+async function openFolder() {
+  if (!activeCompany) return;
+  if (sharepointBase) {
+    // Open SharePoint folder in a new tab
+    // If it looks like a sharing link (?e=...) open as-is, otherwise append company name
+    const isSharingLink = sharepointBase.includes('?e=') || sharepointBase.includes('/:f:/');
+    const url = isSharingLink ? sharepointBase : sharepointBase + '/' + encodeURIComponent(activeCompany);
+    window.open(url, '_blank', 'noopener');
+  } else {
+    // Local Mac fallback
+    const btn = document.getElementById('folder-btn');
+    btn.textContent = '📂 Opening…';
+    await fetch('/api/open-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: activeCompany })
+    });
+    setTimeout(() => { btn.textContent = '📁 Open Folder'; }, 1500);
+  }
+}
+
+function updateFolderBtn() {
+  const btn = document.getElementById('folder-btn');
+  if (!btn) return;
+  btn.textContent = sharepointBase ? '📁 Open SharePoint Folder' : '📁 Open Folder';
+}
+
+async function submitUpdate(name) {
+  const text = document.getElementById('update-text').value.trim();
+  const date = document.getElementById('update-date').value;
+  if (!text) return;
+  await fetch('/api/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, text, date })
+  });
+  // Reload data and re-render detail
+  const res = await fetch('/api/startups');
+  allStartups = await res.json();
+  showDetail(name);
+}
+
+async function deleteUpdate(name, index) {
+  await fetch('/api/update/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, index })
+  });
+  const res = await fetch('/api/startups');
+  allStartups = await res.json();
+  showDetail(name);
+}
+
+function closeDetail() {
+  panelEditMode = false;
+  document.getElementById('detail-panel').classList.remove('open');
+  document.body.classList.remove('panel-open');
+  activeCompany = null;
+  document.querySelectorAll('#table-body tr').forEach(tr => tr.classList.remove('selected'));
+}
+
+// ── Similar Startups (client-side) ─────────────────────────────────────────
+function computeSimilar(startup, all, n = 6) {
+  const targetTags = new Set(startup.tags || []);
+  const targetBU   = new Set((startup.business_unit || '').split(', ').filter(Boolean));
+
+  return all
+    .filter(s => s.name !== startup.name)
+    .map(s => {
+      let score = 0;
+      const sTags = new Set(s.tags || []);
+      const inter = [...targetTags].filter(t => sTags.has(t)).length;
+      const union = new Set([...targetTags, ...sTags]).size;
+      if (union > 0) score += 5 * inter / union;
+      if (s.theme === startup.theme) score += 1;
+      const sBU = new Set((s.business_unit || '').split(', ').filter(Boolean));
+      score += [...targetBU].filter(t => sBU.has(t)).length * 0.5;
+      return { name: s.name, score };
+    })
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, n)
+    .map(s => s.name);
+}
+
+// ── View Switching ─────────────────────────────────────────────────────────
+function switchView(view) {
+  currentView = view;
+  document.getElementById('list-view').style.display    = view === 'list'    ? '' : 'none';
+  document.getElementById('mindmap-view').style.display = view === 'mindmap' ? '' : 'none';
+  // Sync all .view-btns instances (desktop + mobile toolbar)
+  document.querySelectorAll('.view-btns').forEach(vb => {
+    vb.querySelectorAll('button').forEach((b, i) => {
+      b.classList.toggle('active', (i === 0) === (view === 'list'));
+    });
+  });
+  if (view === 'mindmap') setTimeout(renderMindmap, 50);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const STATUS_CLS = {
+  'No contact':                  'status-no-contact',
+  'Met but no live discussions': 'status-met',
+  'Early Exploration':           'status-early',
+  'Advanced discussions':        'status-advanced',
+  'Live collaboration':          'status-live',
+};
+
+function statusBadge(s) {
+  const cls = STATUS_CLS[s] || 'status-default';
+  return s ? `<span class="badge ${cls}">${escHtml(s)}</span>` : '';
+}
+
+function rowTagChips(s) {
+  const pv    = s.edf_pv === 'Yes' ? `<span class="tag-yes">EDF PV</span>` : `<span class="tag-no">EDF PV</span>`;
+  const nda   = s.nda    === 'Yes' ? `<span class="tag-yes">NDA</span>`    : `<span class="tag-no">NDA</span>`;
+  const avoid = s.avoid  === 'Yes' ? `<span class="tag-avoid">Avoid</span>` : '';
+  return pv + ' ' + nda + (avoid ? ' ' + avoid : '');
+}
+
+async function updateStatus(name, newStatus) {
+  const res = await fetch('/api/status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, status: newStatus })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    // Update in-memory record so list view refreshes instantly
+    const s = allStartups.find(x => x.name === name);
+    if (s) s.status = newStatus;
+    // Re-style the select in the panel
+    const sel = document.getElementById('status-select');
+    if (sel) {
+      sel.className = 'status-select ' + (STATUS_CLS[newStatus] || 'status-default');
+    }
+    // Refresh list rows without closing panel
+    if (currentView === 'list') renderList();
+  } else {
+    alert('Failed to save status: ' + (data.error || 'unknown error'));
+  }
+}
+
+function buChips(bu) {
+  if (!bu) return '<span style="color:var(--muted);font-size:0.78rem">—</span>';
+  return bu.split(',').map(b => b.trim()).filter(Boolean)
+    .map(b => `<span class="bu-chip">${escHtml(b)}</span>`).join('');
+}
+
+// ── Collections ────────────────────────────────────────────────────────────
+
+function renderCollectionSelect() {
+  const sel = document.getElementById('col-select');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All startups</option>';
+  Object.keys(collections).sort().forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = `${name} (${collections[name].length})`;
+    if (name === cur) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  const delBtn = document.getElementById('col-del-btn');
+  delBtn.style.display = activeCollection ? '' : 'none';
+  const dlBtn = document.getElementById('col-download-btn');
+  if (dlBtn) dlBtn.title = activeCollection ? `Download "${activeCollection}" as Excel` : 'Download full database as Excel';
+  const info = document.getElementById('col-info');
+  if (activeCollection && collections[activeCollection]) {
+    const n = collections[activeCollection].length;
+    info.innerHTML = `<strong>${n}</strong> startup${n !== 1 ? 's' : ''} in this collection`;
+  } else {
+    info.textContent = '';
+  }
+}
+
+function selectCollection(name) {
+  activeCollection = name;
+  renderCollectionSelect();
+  applyFilters();
+}
+
+function showNewColForm() {
+  document.getElementById('col-new-form').style.display = 'flex';
+  document.getElementById('col-new-input').focus();
+}
+
+function hideNewColForm() {
+  document.getElementById('col-new-form').style.display = 'none';
+  document.getElementById('col-new-input').value = '';
+}
+
+async function createCollection() {
+  const name = document.getElementById('col-new-input').value.trim();
+  if (!name) return;
+  const res = await fetch('/api/collections/create', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    collections[name] = [];
+    hideNewColForm();
+    renderCollectionSelect();
+    // Auto-select the new collection
+    document.getElementById('col-select').value = name;
+    selectCollection(name);
+  } else {
+    alert(data.error || 'Could not create collection');
+  }
+}
+
+async function deleteCollection() {
+  if (!activeCollection) return;
+  if (!confirm(`Delete collection "${activeCollection}"?`)) return;
+  await fetch('/api/collections/delete', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name: activeCollection})
+  });
+  delete collections[activeCollection];
+  selectCollection('');
+  renderCollectionSelect();
+  renderList();
+}
+
+function isInAnyCollection(name) {
+  return Object.values(collections).some(members => members.includes(name));
+}
+
+function isInCollection(colName, startupName) {
+  return colName && collections[colName] && collections[colName].includes(startupName);
+}
+
+// Collection popover
+let popoverTarget = null;
+
+function openPanelCollectMenu(event) {
+  if (activeCompany) openCollectMenu(event, activeCompany);
+}
+
+function updatePanelCollectBtn() {
+  const btn = document.getElementById('panel-collect-btn');
+  if (!btn || !activeCompany) return;
+  const inAny = isInAnyCollection(activeCompany);
+  btn.style.borderColor = inAny ? 'var(--primary)' : '';
+  btn.style.color = inAny ? 'var(--primary)' : '';
+}
+
+function openCollectMenu(event, name) {
+  event.stopPropagation();
+  const btn = event.currentTarget;
+  popoverTarget = name;
+
+  const pop = document.getElementById('collect-popover');
+  const colNames = Object.keys(collections).sort();
+
+  if (colNames.length === 0) {
+    pop.innerHTML = `<div class="collect-popover-empty">No collections yet — create one above.</div>`;
+  } else {
+    pop.innerHTML = `<div class="collect-popover-title">Add to collection</div>` +
+      colNames.map(c => {
+        const inCol = (collections[c] || []).includes(name);
+        return `<div class="collect-popover-item" onclick="toggleInCollection('${escHtml(c)}','${escHtml(name)}',this)">
+          <span class="check">${inCol ? '✓' : ''}</span>
+          <span>${escHtml(c)}</span>
+          <span style="margin-left:auto;font-size:0.72rem;color:var(--muted)">${collections[c].length}</span>
+        </div>`;
+      }).join('');
+  }
+
+  // Position below the button
+  const rect = btn.getBoundingClientRect();
+  pop.style.display = 'block';
+  const popW = 200;
+  let left = rect.left - popW + rect.width;
+  if (left < 8) left = 8;
+  pop.style.left = left + 'px';
+  pop.style.top  = (rect.bottom + 4) + 'px';
+}
+
+async function toggleInCollection(colName, startupName, el) {
+  const inCol = (collections[colName] || []).includes(startupName);
+  const endpoint = inCol ? '/api/collections/remove' : '/api/collections/add';
+  await fetch(endpoint, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({collection: colName, startup: startupName})
+  });
+  if (inCol) {
+    collections[colName] = collections[colName].filter(n => n !== startupName);
+    el.querySelector('.check').textContent = '';
+  } else {
+    collections[colName].push(startupName);
+    el.querySelector('.check').textContent = '✓';
+  }
+  el.querySelector('span:last-child').textContent = collections[colName].length;
+  renderCollectionSelect();
+  // Update the row button state without full re-render
+  document.querySelectorAll('.collect-btn').forEach(btn => {
+    const row = btn.closest('tr');
+    const cellName = row?.querySelector('.name-cell')?.textContent;
+    if (cellName) btn.classList.toggle('in-col', isInAnyCollection(cellName));
+  });
+  updatePanelCollectBtn();
+  if (activeCollection) applyFilters();
+}
+
+// Close popover on outside click
+document.addEventListener('click', e => {
+  const pop = document.getElementById('collect-popover');
+  if (!pop.contains(e.target)) pop.style.display = 'none';
+});
+
+// ── Toast helper ───────────────────────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg, type = 'ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { t.className = 'toast'; }, 3500);
+}
+
+// ── Bulk upload ─────────────────────────────────────────────────────────────
+async function submitBulkUpload() {
+  const fileInput = document.getElementById('upload-file');
+  const errEl = document.getElementById('upload-error');
+  if (!fileInput.files.length) {
+    errEl.textContent = 'Please select a file.'; errEl.style.display = ''; return;
+  }
+  const btn = document.getElementById('add-modal-submit-btn');
+  btn.textContent = 'Uploading…'; btn.disabled = true;
+  errEl.style.display = 'none';
+  const form = new FormData();
+  form.append('file', fileInput.files[0]);
+  const defaultCat = document.getElementById('upload-default-category')?.value || '';
+  if (defaultCat) form.append('default_category', defaultCat);
+  try {
+    const res = await fetch('/api/startups/bulk-upload', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      closeAddModal();
+      const r = await fetch('/api/startups');
+      allStartups = await r.json();
+      populateFilters();
+      applyFilters();
+      showToast(`Added ${data.added} startup${data.added !== 1 ? 's' : ''}${data.skipped ? `, skipped ${data.skipped} duplicate${data.skipped !== 1 ? 's' : ''}` : ''}`, 'ok');
+    } else {
+      errEl.textContent = data.error || 'Upload failed.'; errEl.style.display = '';
+    }
+  } catch(e) {
+    errEl.textContent = 'Network error — please try again.'; errEl.style.display = '';
+  } finally {
+    btn.textContent = 'Upload file'; btn.disabled = false;
+  }
+}
+
+// ── Download collection ─────────────────────────────────────────────────────
+function downloadCollection() {
+  const col = activeCollection;
+  const url = '/api/export' + (col ? `?collection=${encodeURIComponent(col)}` : '');
+  const a = document.createElement('a');
+  a.href = url; a.download = (col || 'all_startups') + '.xlsx';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// ── Event listeners ────────────────────────────────────────────────────────
+document.getElementById('search').addEventListener('input', applyFilters);
+['filter-theme','filter-category','filter-bu','filter-status','filter-edf-pv','filter-country'].forEach(id =>
+  document.getElementById(id).addEventListener('change', applyFilters)
+);
+
+// ── Add Startup Modal ───────────────────────────────────────────────────────
+
+const BU_OPTIONS = [
+  'Nuclear operations','Nuclear Services','Dalkia','BWS','Retail',
+  'EDF Heat Pumps','Contact Solar','Hynamics','R&D','EDF Power Solutions','Pod'
+];
+
+function openAddModal() {
+  // Populate category dropdown from existing values
+  const cats = [...new Set(allStartups.map(s => s.primary_category).filter(Boolean))].sort();
+  const catSel = document.getElementById('add-category');
+  catSel.innerHTML = '<option value="">— select —</option>';
+  cats.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; catSel.appendChild(o); });
+
+  // Populate status dropdown
+  const statSel = document.getElementById('add-status');
+  statSel.innerHTML = '';
+  ['No contact','Met but no live discussions','Early Exploration','Advanced discussions','Live collaboration']
+    .forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; statSel.appendChild(o); });
+
+  // Populate BU checkboxes
+  const grid = document.getElementById('add-bu-grid');
+  grid.innerHTML = BU_OPTIONS.map(bu => `
+    <label class="bu-check-label" id="bu-lbl-${escHtml(bu.replace(/\s+/g,'-'))}">
+      <input type="checkbox" value="${escHtml(bu)}"
+        onchange="this.closest('label').classList.toggle('checked', this.checked)">
+      ${escHtml(bu)}
+    </label>`).join('');
+
+  // Clear fields
+  ['add-name','add-website','add-country','add-description','add-status-comment','add-added-by',
+   'add-key-contact','add-key-contact-email','add-relationship-owner']
+    .forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('add-edf-pv').value = 'No';
+  document.getElementById('add-nda').value = 'No';
+  document.getElementById('add-avoid').value = 'No';
+  document.querySelectorAll('#add-bu-grid input[type=checkbox]').forEach(cb => { cb.checked = false; cb.closest('label').classList.remove('checked'); });
+  document.getElementById('add-error').style.display = 'none';
+
+  document.getElementById('add-modal').style.display = '';
+  setTimeout(() => document.getElementById('add-name').focus(), 50);
+}
+
+function closeAddModal() {
+  document.getElementById('add-modal').style.display = 'none';
+  switchAddTab('manual');  // reset to manual tab for next open
+}
+
+function switchAddTab(tab) {
+  const isUpload = tab === 'upload';
+  document.getElementById('tab-manual').classList.toggle('active', !isUpload);
+  document.getElementById('tab-upload').classList.toggle('active',  isUpload);
+  document.getElementById('add-manual-panel').style.display = isUpload ? 'none' : '';
+  document.getElementById('add-upload-panel').style.display = isUpload ? '' : 'none';
+  document.getElementById('add-modal-title').textContent    = isUpload ? 'Upload Startups' : 'Add Startup';
+  // Footer: swap button
+  const btn = document.getElementById('add-modal-submit-btn');
+  btn.textContent = isUpload ? 'Upload file' : 'Add to database';
+  btn.onclick = isUpload ? submitBulkUpload : submitNewStartup;
+  if (isUpload) {
+    document.getElementById('upload-error').style.display = 'none';
+    document.getElementById('upload-file').value = '';
+    document.getElementById('drop-chosen').style.display = 'none';
+    // Populate category dropdown
+    const sel = document.getElementById('upload-default-category');
+    const cats = [...new Set(allStartups.map(s => s.primary_category).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">— none —</option>';
+    cats.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
+  }
+}
+
+function handleUploadFileChange(input) {
+  const chosen = document.getElementById('drop-chosen');
+  if (input.files.length) {
+    chosen.textContent = '📄 ' + input.files[0].name;
+    chosen.style.display = '';
+  }
+}
+
+function handleUploadDrop(event) {
+  event.preventDefault();
+  document.getElementById('upload-drop-zone').classList.remove('drag-over');
+  const files = event.dataTransfer.files;
+  if (files.length) {
+    const input = document.getElementById('upload-file');
+    // DataTransfer trick to assign dropped file to input
+    const dt = new DataTransfer();
+    dt.items.add(files[0]);
+    input.files = dt.files;
+    handleUploadFileChange(input);
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeAddModal();
+});
+
+async function submitNewStartup() {
+  const name = document.getElementById('add-name').value.trim();
+  const errEl = document.getElementById('add-error');
+  if (!name) {
+    errEl.textContent = 'Company name is required.';
+    errEl.style.display = '';
+    document.getElementById('add-name').focus();
+    return;
+  }
+  if (allStartups.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+    errEl.textContent = `"${name}" already exists in the database.`;
+    errEl.style.display = '';
+    return;
+  }
+  errEl.style.display = 'none';
+
+  const bus = [...document.querySelectorAll('#add-bu-grid input[type=checkbox]:checked')].map(cb => cb.value);
+
+  const payload = {
+    name,
+    website:           document.getElementById('add-website').value.trim() || null,
+    country:           document.getElementById('add-country').value.trim() || null,
+    category:          document.getElementById('add-category').value || null,
+    status:            document.getElementById('add-status').value,
+    description:       document.getElementById('add-description').value.trim() || null,
+    status_comment:    document.getElementById('add-status-comment').value.trim() || null,
+    added_by:          document.getElementById('add-added-by').value.trim() || null,
+    edf_pv:            document.getElementById('add-edf-pv').value,
+    nda:               document.getElementById('add-nda').value,
+    key_contact:       document.getElementById('add-key-contact').value.trim() || null,
+    key_contact_email: document.getElementById('add-key-contact-email').value.trim() || null,
+    relationship_owner:document.getElementById('add-relationship-owner').value.trim() || null,
+    avoid:             document.getElementById('add-avoid').value,
+    business_units:    bus,
+  };
+
+  const btn = document.querySelector('#add-modal .btn-primary');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+
+  try {
+    const res  = await fetch('/api/startups/add', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (data.ok) {
+      closeAddModal();
+      // Reload data and jump to new row
+      const r = await fetch('/api/startups');
+      allStartups = await r.json();
+      populateFilters();
+      applyFilters();
+      showDetail(name);
+    } else {
+      errEl.textContent = data.error || 'Failed to save.';
+      errEl.style.display = '';
+    }
+  } catch(e) {
+    errEl.textContent = 'Network error — please try again.';
+    errEl.style.display = '';
+  } finally {
+    btn.textContent = 'Add to database'; btn.disabled = false;
+  }
+}
+
+// ── Find similar (per-card AI) ──────────────────────────────────────────────
+async function runFindSimilar(name) {
+  if (_findSimilarRunning) return;   // already running
+  _findSimilarRunning = name;
+  if (activeCompany === name) showDetail(name);  // show spinner immediately
+
+  let taskId;
+  try {
+    const res = await fetch('/api/ai/find-similar', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Failed to start');
+    taskId = data.task_id;
+  } catch(e) {
+    _findSimilarRunning = '';
+    showToast('AI error: ' + e.message, 'err');
+    if (activeCompany === name) showDetail(name);
+    return;
+  }
+
+  if (_findSimilarPoller) clearInterval(_findSimilarPoller);
+  _findSimilarPoller = setInterval(async () => {
+    try {
+      const r = await fetch(`/api/ai/status/${taskId}`);
+      const d = await r.json();
+      if (d.status === 'running') return;
+      clearInterval(_findSimilarPoller);
+      _findSimilarPoller = null;
+      _findSimilarRunning = '';
+
+      if (d.status === 'error') {
+        showToast('AI error: ' + (d.result?.error || 'unknown'), 'err');
+        if (activeCompany === name) showDetail(name);
+        return;
+      }
+
+      const added = d.result?.added || [];
+      const n = added.length;
+      showToast(
+        n > 0
+          ? `✓ Added ${n} similar startup${n !== 1 ? 's' : ''}: ${added.map(a => a.name).join(', ')}`
+          : '✓ Done — all similar startups already in database.',
+        'ok'
+      );
+
+      // Reload data and re-render panel so new startups appear in Similar section
+      const fresh = await fetch('/api/startups');
+      allStartups = await fresh.json();
+      applyFilters();
+      if (activeCompany === name) showDetail(name);
+    } catch(e) {
+      // transient — keep polling
+    }
+  }, 2000);
+}
+
+// ── AI Modal ────────────────────────────────────────────────────────────────
+let _aiPollers = {};          // taskType → interval id
+let _findSimilarPoller = null;
+let _findSimilarRunning = ''; // startup name currently being processed, '' if idle
+
+function openAiModal() {
+  document.getElementById('ai-modal').style.display = '';
+  loadAiLog();
+}
+function closeAiModal() {
+  document.getElementById('ai-modal').style.display = 'none';
+}
+
+async function loadAiLog() {
+  const el = document.getElementById('ai-log-list');
+  try {
+    const res = await fetch('/api/ai/log');
+    const log = await res.json();
+    if (!log.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;font-style:italic">No tasks run yet.</div>';
+      return;
+    }
+    el.innerHTML = log.map(e => {
+      const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : '';
+      let detail = '';
+      if (e.type === 'daily_augment') {
+        detail = e.added && e.added.length
+          ? `Added: ${e.added.map(a => a.name).join(', ')}`
+          : 'No new startups added.';
+        if (e.seeds && e.seeds.length) detail = `Seeds: ${e.seeds.join(', ')} → ${detail}`;
+      } else if (e.type === 'find_similar') {
+        detail = e.added && e.added.length
+          ? `For ${e.seed}: added ${e.added.map(a => a.name).join(', ')}`
+          : `For ${e.seed}: all candidates already in database.`;
+      } else if (e.type === 'monthly_update') {
+        detail = `Checked ${e.checked || 0} startups. ` +
+          (e.updated && e.updated.length ? `Updated: ${e.updated.map(u => u.name).join(', ')}` : 'No news found.');
+      } else if (e.type === 'fill_websites') {
+        detail = `Checked ${e.checked || 0} startups missing a website. ` +
+          (e.updated && e.updated.length ? `Added ${e.updated.length}: ${e.updated.map(u => u.name).join(', ')}` : 'No new websites found.');
+      }
+      if (e.errors && e.errors.length) detail += ` ⚠ ${e.errors.length} error(s)`;
+      if (e.type === 'fill_descriptions') {
+        detail = `Checked ${e.checked || 0} startups missing a description. ` +
+          (e.updated && e.updated.length ? `Updated ${e.updated.length}: ${e.updated.map(u => u.name).join(', ')}` : 'No descriptions added.');
+      }
+      const typeLabel = e.type === 'daily_augment'     ? '🔍 Random'
+                      : e.type === 'find_similar'      ? '🤖 Card'
+                      : e.type === 'fill_websites'     ? '🌐 Websites'
+                      : e.type === 'fill_descriptions' ? '📝 Descriptions'
+                      : '📰 Monthly';
+      return `<div class="ai-log-entry">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="ai-log-type">${typeLabel}</span>
+          <span class="ai-log-meta">${escHtml(ts)}</span>
+        </div>
+        <div class="ai-log-detail">${escHtml(detail)}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:0.8rem">Could not load log.</div>';
+  }
+}
+
+async function runAiTask(type) {
+  const endpoint = type === 'daily'             ? '/api/ai/daily-augment'
+                 : type === 'monthly'           ? '/api/ai/monthly-update'
+                 : type === 'fill-websites'     ? '/api/ai/fill-websites'
+                 : '/api/ai/fill-descriptions';
+  const btnId    = `btn-${type}`;
+  const statusId = `status-${type}`;
+  const btn    = document.getElementById(btnId);
+  const status = document.getElementById(statusId);
+
+  btn.disabled = true;
+  status.className = 'ai-task-status running';
+  status.textContent = type === 'fill-websites'
+    ? '⏳ Running… this may take several minutes depending on how many websites are missing.'
+    : '⏳ Running… this may take 30–60 seconds.';
+
+  // Clear any existing poller for this type
+  if (_aiPollers[type]) { clearInterval(_aiPollers[type]); delete _aiPollers[type]; }
+
+  let taskId;
+  try {
+    const res = await fetch(endpoint, { method: 'POST' });
+    const data = await res.json();
+    if (res.status === 401 || data.error === 'session_expired') {
+      location.reload(); return;  // session expired — reload to show login page
+    }
+    if (!data.ok) throw new Error(data.error || 'Failed to start');
+    taskId = data.task_id;
+  } catch(e) {
+    status.className = 'ai-task-status error';
+    status.textContent = '✕ ' + e.message;
+    btn.disabled = false;
+    return;
+  }
+
+  // Poll until done
+  _aiPollers[type] = setInterval(async () => {
+    try {
+      const r = await fetch(`/api/ai/status/${taskId}`);
+      const d = await r.json();
+      if (d.status === 'running') return;   // keep polling
+      clearInterval(_aiPollers[type]);
+      delete _aiPollers[type];
+      btn.disabled = false;
+
+      if (d.status === 'error') {
+        status.className = 'ai-task-status error';
+        status.textContent = '✕ Error: ' + (d.result?.error || 'unknown');
+        return;
+      }
+
+      // Done — show result
+      const result = d.result || {};
+      let msg = '';
+      if (type === 'daily') {
+        const n = (result.added || []).length;
+        msg = n > 0
+          ? `✓ Added ${n} new startup${n !== 1 ? 's' : ''}: ${result.added.map(a => a.name).join(', ')}`
+          : '✓ Done — no new startups were added (all candidates already existed).';
+        if (result.errors && result.errors.length) msg += ` (${result.errors.length} error${result.errors.length > 1 ? 's' : ''})`;
+      } else if (type === 'monthly') {
+        const n = (result.updated || []).length;
+        msg = `✓ Checked ${result.checked || 0} startups. ` +
+          (n > 0 ? `Added news notes to: ${result.updated.map(u => u.name).join(', ')}.` : 'No significant news found.');
+        if (result.errors && result.errors.length) msg += ` (${result.errors.length} error${result.errors.length > 1 ? 's' : ''})`;
+      } else if (type === 'fill-websites') {
+        const n = (result.updated || []).length;
+        msg = `✓ Checked ${result.checked || 0} startups needing a website. ` +
+          (n > 0 ? `Updated ${n}: ${result.updated.map(u => u.name).join(', ')}.` : 'No websites found.');
+        if (result.errors && result.errors.length) msg += ` (${result.errors.length} error${result.errors.length > 1 ? 's' : ''})`;
+      } else {
+        const n = (result.updated || []).length;
+        msg = `✓ Checked ${result.checked || 0} startups needing a description. ` +
+          (n > 0 ? `Updated ${n}: ${result.updated.map(u => u.name).join(', ')}.` : 'No descriptions added.');
+        if (result.errors && result.errors.length) msg += ` (${result.errors.length} error${result.errors.length > 1 ? 's' : ''})`;
+      }
+      status.className = 'ai-task-status done';
+      status.textContent = msg;
+
+      // Refresh startup list in background
+      fetch('/api/startups').then(r => r.json()).then(data => {
+        allStartups = data;
+        applyFilters();
+      });
+      loadAiLog();
+    } catch(e) {
+      // transient network error — keep polling
+    }
+  }, 2000);
+}
+
+// ── Mobile toggles ──────────────────────────────────────────────────────────
+function toggleMobileFilters() {
+  const filters = document.querySelector('.header-filters');
+  const btn = document.getElementById('mobile-filter-btn');
+  const isOpen = filters.classList.toggle('mobile-open');
+  btn.classList.toggle('active', isOpen);
+  btn.textContent = isOpen ? '⚙ Filters ▲' : '⚙ Filters ▾';
+  // Close collections if open
+  if (isOpen) {
+    document.querySelector('.header-right').classList.remove('mobile-open');
+    document.getElementById('mobile-col-btn').classList.remove('active');
+    document.getElementById('mobile-col-btn').textContent = '📚 Collections ▾';
+  }
+}
+
+function toggleMobileCollections() {
+  const panel = document.querySelector('.header-right');
+  const btn = document.getElementById('mobile-col-btn');
+  const isOpen = panel.classList.toggle('mobile-open');
+  btn.classList.toggle('active', isOpen);
+  btn.textContent = isOpen ? '📚 Collections ▲' : '📚 Collections ▾';
+  // Close filters if open
+  if (isOpen) {
+    document.querySelector('.header-filters').classList.remove('mobile-open');
+    document.getElementById('mobile-filter-btn').classList.remove('active');
+    document.getElementById('mobile-filter-btn').textContent = '⚙ Filters ▾';
+  }
+}
+
+init();
+</script>
+
+<!-- ── Add Startup Modal ─────────────────────────────────────────────── -->
+<div id="add-modal" style="display:none">
+  <div class="modal-overlay" onclick="closeAddModal()"></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 id="add-modal-title">Add Startup</h2>
+      <button class="modal-header-close" onclick="closeAddModal()">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Tabs -->
+      <div class="modal-tabs">
+        <button class="modal-tab active" id="tab-manual" onclick="switchAddTab('manual')">✏ Add manually</button>
+        <button class="modal-tab" id="tab-upload" onclick="switchAddTab('upload')">⬆ Upload Excel</button>
+      </div>
+
+      <!-- Upload panel -->
+      <div id="add-upload-panel" style="display:none">
+        <div class="modal-error" id="upload-error"></div>
+        <div class="upload-drop-zone" id="upload-drop-zone" onclick="document.getElementById('upload-file').click()"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleUploadDrop(event)">
+          <div class="drop-icon">📂</div>
+          <div class="drop-title">Drop your Excel file here</div>
+          <div class="drop-sub">or click to browse — .xlsx files only</div>
+          <div class="drop-chosen" id="drop-chosen" style="display:none"></div>
+        </div>
+        <input type="file" id="upload-file" accept=".xlsx,.xls" style="display:none"
+               onchange="handleUploadFileChange(this)">
+        <p style="font-size:0.8rem;color:var(--muted);line-height:1.6;margin-bottom:14px">
+          Each row = one startup. Must include a <strong style="color:var(--text)">Company name</strong> column.
+          Duplicates are skipped automatically.
+        </p>
+        <div class="form-group" style="margin-bottom:12px">
+          <label style="font-size:0.75rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:5px">Default category <span style="font-weight:400;text-transform:none;letter-spacing:0">(applied to rows with no category column)</span></label>
+          <select id="upload-default-category" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:7px 10px;font-size:0.85rem;width:100%;outline:none">
+            <option value="">— none —</option>
+          </select>
+        </div>
+        <p style="font-size:0.75rem;color:var(--muted);line-height:1.6">
+          Recognised columns: Company name, Website, Country, Category, Status, Description,
+          Status comment, Added by, EDF PV, NDA signed, Key contact, Key contact email,
+          Relationship owner, Avoid.
+        </p>
+      </div>
+
+      <!-- Manual panel -->
+      <div id="add-manual-panel">
+      <div class="modal-error" id="add-error"></div>
+      <div class="form-grid">
+
+        <div class="form-section-title full">Core details</div>
+
+        <div class="form-group full">
+          <label>Company name <span style="color:#f87171">*</span></label>
+          <input type="text" id="add-name" placeholder="e.g. Acme Energy" autocomplete="off">
+        </div>
+
+        <div class="form-group">
+          <label>Website</label>
+          <input type="url" id="add-website" placeholder="https://…">
+        </div>
+
+        <div class="form-group">
+          <label>Country</label>
+          <input type="text" id="add-country" placeholder="e.g. United Kingdom">
+        </div>
+
+        <div class="form-group">
+          <label>Category</label>
+          <select id="add-category"></select>
+        </div>
+
+        <div class="form-group">
+          <label>Status</label>
+          <select id="add-status"></select>
+        </div>
+
+        <div class="form-group full">
+          <label>Description</label>
+          <textarea id="add-description" placeholder="Brief description of what the company does…"></textarea>
+        </div>
+
+        <div class="form-section-title full">Relationship</div>
+
+        <div class="form-group">
+          <label>Status comment</label>
+          <input type="text" id="add-status-comment" placeholder="Any context on status…">
+        </div>
+
+        <div class="form-group">
+          <label>Added by</label>
+          <input type="text" id="add-added-by" placeholder="Your name">
+        </div>
+
+        <div class="form-group">
+          <label>Key contact name</label>
+          <input type="text" id="add-key-contact" placeholder="e.g. Jane Smith">
+        </div>
+
+        <div class="form-group">
+          <label>Key contact email</label>
+          <input type="email" id="add-key-contact-email" placeholder="jane@example.com">
+        </div>
+
+        <div class="form-group">
+          <label>Relationship owner</label>
+          <input type="text" id="add-relationship-owner" placeholder="Your name or team">
+        </div>
+
+        <div class="form-group">
+          <label>Avoid this company</label>
+          <select id="add-avoid">
+            <option value="No">No</option>
+            <option value="Yes">Yes</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>EDF PV portfolio</label>
+          <select id="add-edf-pv">
+            <option value="No">No</option>
+            <option value="Yes">Yes</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>NDA signed</label>
+          <select id="add-nda">
+            <option value="No">No</option>
+            <option value="Yes">Yes</option>
+          </select>
+        </div>
+
+        <div class="form-section-title full">Business units</div>
+
+        <div class="full">
+          <div class="bu-grid" id="add-bu-grid"></div>
+        </div>
+
+      </div>
+      </div><!-- end add-manual-panel -->
+    </div>
+    <div class="modal-footer" id="add-modal-footer">
+      <button class="btn-cancel-modal" onclick="closeAddModal()">Cancel</button>
+      <button class="btn-primary" id="add-modal-submit-btn" onclick="submitNewStartup()">Add to database</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- AI Modal -->
+<div id="ai-modal" style="display:none">
+  <div class="modal-overlay" onclick="closeAiModal()"></div>
+  <div class="modal-card" style="max-width:560px">
+    <div class="modal-header">
+      <h2>🤖 AI Augmentation</h2>
+      <button class="modal-header-close" onclick="closeAiModal()">✕</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+
+      <div class="ai-api-warn" id="ai-api-warn" style="display:none">
+        ⚠ <strong>ANTHROPIC_API_KEY</strong> is not configured. Set it as an environment variable to enable AI features.
+      </div>
+
+      <!-- Random Augment -->
+      <div class="ai-task-card">
+        <h3>🔍 Random Augment</h3>
+        <p>Picks 2 startups at random, searches the web for 2 similar real startups each, and adds them to the database. Triggered manually whenever you want to grow the database.</p>
+        <button class="btn-primary" id="btn-daily" onclick="runAiTask('daily')">Run now</button>
+        <div class="ai-task-status" id="status-daily"></div>
+      </div>
+
+      <!-- Monthly Update -->
+      <div class="ai-task-card">
+        <h3>📰 Monthly Update</h3>
+        <p>Searches for recent news on all startups in <em>Early Exploration</em>, <em>Advanced discussions</em>, or <em>Live collaboration</em> and adds a note with key updates. Run monthly to stay current.</p>
+        <button class="btn-primary" id="btn-monthly" onclick="runAiTask('monthly')">Run now</button>
+        <div class="ai-task-status" id="status-monthly"></div>
+      </div>
+
+      <!-- Fill Missing Descriptions -->
+      <div class="ai-task-card">
+        <h3>📝 Fill Missing Descriptions</h3>
+        <p>Finds and writes a 2-3 sentence description for any startup that is missing one or only has a very short entry.</p>
+        <button class="btn-primary" id="btn-fill-descriptions" onclick="runAiTask('fill-descriptions')">Run now</button>
+        <div class="ai-task-status" id="status-fill-descriptions"></div>
+      </div>
+
+      <!-- Fill Missing Websites -->
+      <div class="ai-task-card">
+        <h3>🌐 Fill Missing Websites</h3>
+        <p>Finds the official website for any startup that is missing one or only has a LinkedIn / Crunchbase URL, and writes it back to the database. Run once to clean up the data.</p>
+        <button class="btn-primary" id="btn-fill-websites" onclick="runAiTask('fill-websites')">Run now</button>
+        <div class="ai-task-status" id="status-fill-websites"></div>
+      </div>
+
+      <!-- Recent log -->
+      <div>
+        <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);font-weight:700;margin-bottom:8px">Recent activity</div>
+        <div id="ai-log-list" style="max-height:200px;overflow-y:auto">
+          <div style="color:var(--muted);font-size:0.8rem">Loading…</div>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer" style="justify-content:flex-start">
+      <span style="font-size:0.75rem;color:var(--muted)">Requires <code style="background:var(--bg);padding:1px 5px;border-radius:4px">ANTHROPIC_API_KEY</code> environment variable.</span>
+    </div>
+  </div>
+</div>
+
+
+</body>
+</html>

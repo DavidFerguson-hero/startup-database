@@ -1,0 +1,11 @@
+startups/
+server.log
+.password_hash
+.secret_key
+.notes_migrated
+updates.json
+ai_log.json
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store

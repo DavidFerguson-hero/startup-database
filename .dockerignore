@@ -1,0 +1,11 @@
+startups/
+*.xlsx
+*.json
+.secret_key
+.password_hash
+.notes_migrated
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.railwayignore

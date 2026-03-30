@@ -1,0 +1,26 @@
+# Security — never commit these
+.password_hash
+.secret_key
+
+# Generated at runtime
+.notes_migrated
+server.log
+__pycache__/
+*.pyc
+.DS_Store
+
+# Per-company folders (can be large)
+startups/
+
+# User data — backed up separately
+collections.json
+updates.json
+ai_log.json
+research_tracker.json
+
+# Excel data files
+*.xlsx
+~$*
+
+# Claude local config
+.claude/
