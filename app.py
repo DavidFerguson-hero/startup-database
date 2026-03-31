@@ -16,6 +16,7 @@ DATA_DIR = os.environ.get('DATA_DIR', BASE)
 EXCEL = os.path.join(DATA_DIR, 'Startup database.xlsx')
 UPDATES = os.path.join(DATA_DIR, 'updates.json')   # legacy — migrated on first run
 STARTUPS_DIR = os.path.join(DATA_DIR, 'startups')
+os.makedirs(STARTUPS_DIR, exist_ok=True)
 MIGRATED_FLAG = os.path.join(DATA_DIR, '.notes_migrated')
 PW_FILE = os.path.join(DATA_DIR, '.password_hash')
 SK_FILE = os.path.join(DATA_DIR, '.secret_key')
@@ -297,7 +298,16 @@ def _clean(val):
         return None
     return val
 
+def _ensure_excel():
+    """Create an empty Excel file with correct headers if none exists (e.g. fresh Railway deploy)."""
+    if not os.path.exists(EXCEL):
+        os.makedirs(os.path.dirname(EXCEL), exist_ok=True) if os.path.dirname(EXCEL) else None
+        cols = ['Company name', 'Category', 'Theme', 'Website', 'Description',
+                'Contact name', 'Contact email', 'Status', 'Country', 'Tags'] + BU_CHECKBOX_COLS + ['Notes']
+        pd.DataFrame(columns=cols).to_excel(EXCEL, index=False)
+
 def load_startups():
+    _ensure_excel()
     df = pd.read_excel(EXCEL, header=0)
     df = df.where(pd.notna(df), None)
     df.columns = [c.lstrip('\ufeff').strip() for c in df.columns]
