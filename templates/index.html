@@ -37,6 +37,16 @@
   .header-filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   select { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: var(--radius); font-size: 0.78rem; cursor: pointer; outline: none; }
   select:focus { border-color: var(--primary); }
+  /* Multi-select status dropdown */
+  .multi-select-wrap { position: relative; }
+  .multi-select-btn { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: var(--radius); font-size: 0.78rem; cursor: pointer; outline: none; white-space: nowrap; }
+  .multi-select-btn:focus, .multi-select-btn.active { border-color: var(--primary); }
+  .multi-select-dropdown { display: none; position: absolute; top: calc(100% + 4px); left: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 0; z-index: 200; min-width: 220px; box-shadow: 0 8px 24px #0006; }
+  .multi-select-dropdown.open { display: block; }
+  .multi-select-option { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 0.78rem; cursor: pointer; color: var(--text); transition: background 0.1s; }
+  .multi-select-option:hover { background: var(--surface2); }
+  .multi-select-option input[type=checkbox] { accent-color: var(--primary); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
+  .multi-select-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
   .view-btns { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
   .view-btns button { padding: 5px 12px; background: none; border: none; color: var(--muted); font-size: 0.78rem; cursor: pointer; transition: all 0.15s; }
   .view-btns button.active { background: var(--primary); color: #0f172a; font-weight: 600; }
@@ -299,6 +309,9 @@
     .header-filters { display: none; }
     .header-filters.mobile-open { display: flex; flex-wrap: wrap; gap: 6px; }
     .header-filters select { flex: 1; min-width: 130px; }
+    .header-filters .multi-select-wrap { flex: 1; min-width: 130px; }
+    .header-filters .multi-select-btn { width: 100%; }
+    .multi-select-dropdown { min-width: 100%; }
 
     /* Mobile toolbar row */
     .mobile-toolbar { display: flex; }
@@ -383,7 +396,10 @@
       <select id="filter-theme"><option value="">All themes</option></select>
       <select id="filter-category"><option value="">All categories</option></select>
       <select id="filter-bu"><option value="">All business units</option></select>
-      <select id="filter-status"><option value="">All statuses</option></select>
+      <div class="multi-select-wrap" id="status-filter-wrap">
+        <button class="multi-select-btn" id="status-filter-btn" onclick="toggleStatusDropdown(event)" type="button">All statuses ▾</button>
+        <div class="multi-select-dropdown" id="status-filter-dropdown"></div>
+      </div>
       <select id="filter-edf-pv"><option value="">EDF PV portfolio</option><option value="Yes">EDF PV: Yes</option><option value="No">EDF PV: No</option></select>
       <select id="filter-country"><option value="">All countries</option></select>
     </div>
@@ -513,7 +529,7 @@ function populateFilters() {
   addOptions('filter-theme', themes);
   addOptions('filter-category', categories);
   addOptions('filter-bu', bus);
-  addOptions('filter-status', statuses);
+  buildStatusDropdown(statuses);
   addOptions('filter-country', countries);
   // tag filters are static (Yes/No) — no dynamic options needed
 }
@@ -527,13 +543,53 @@ function addOptions(id, values) {
   });
 }
 
+// ── Multi-select status dropdown ───────────────────────────────────────────
+function buildStatusDropdown(statuses) {
+  const dd = document.getElementById('status-filter-dropdown');
+  dd.innerHTML = '';
+  statuses.forEach(s => {
+    const label = document.createElement('label');
+    label.className = 'multi-select-option';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = s;
+    cb.addEventListener('change', () => { applyFilters(); updateStatusBtn(); });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(s));
+    dd.appendChild(label);
+  });
+}
+
+function getSelectedStatuses() {
+  return [...document.querySelectorAll('#status-filter-dropdown input:checked')].map(cb => cb.value);
+}
+
+function updateStatusBtn() {
+  const selected = getSelectedStatuses();
+  const btn = document.getElementById('status-filter-btn');
+  btn.textContent = selected.length ? selected.length + ' status' + (selected.length > 1 ? 'es' : '') + ' ▾' : 'All statuses ▾';
+  btn.classList.toggle('active', selected.length > 0);
+}
+
+function toggleStatusDropdown(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('status-filter-dropdown');
+  dd.classList.toggle('open');
+}
+
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('status-filter-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('status-filter-dropdown').classList.remove('open');
+  }
+});
+
 // ── Filtering & Search ─────────────────────────────────────────────────────
 function applyFilters() {
   const q        = document.getElementById('search').value.toLowerCase().trim();
   const theme    = document.getElementById('filter-theme').value;
   const category = document.getElementById('filter-category').value;
   const bu       = document.getElementById('filter-bu').value;
-  const status   = document.getElementById('filter-status').value;
+  const selectedStatuses = getSelectedStatuses();
   const edPv     = document.getElementById('filter-edf-pv').value;
   const nda      = document.getElementById('filter-nda')?.value || '';
   const country  = document.getElementById('filter-country').value;
@@ -544,7 +600,7 @@ function applyFilters() {
     if (colMembers && !colMembers.has(s.name)) return false;
     if (theme    && s.theme !== theme) return false;
     if (category && s.category !== category) return false;
-    if (status   && s.status !== status) return false;
+    if (selectedStatuses.length && !selectedStatuses.includes(s.status)) return false;
     if (bu      && !(s.business_unit || '').split(',').map(b => b.trim()).includes(bu)) return false;
     if (edPv    && s.edf_pv !== edPv) return false;
     if (nda     && s.nda   !== nda)   return false;
@@ -1434,7 +1490,7 @@ function downloadCollection() {
 
 // ── Event listeners ────────────────────────────────────────────────────────
 document.getElementById('search').addEventListener('input', applyFilters);
-['filter-theme','filter-category','filter-bu','filter-status','filter-edf-pv','filter-country'].forEach(id =>
+['filter-theme','filter-category','filter-bu','filter-edf-pv','filter-country'].forEach(id =>
   document.getElementById(id).addEventListener('change', applyFilters)
 );
 
