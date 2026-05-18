@@ -1,0 +1,71 @@
+name: Build desktop apps
+
+# Runs when you publish a GitHub Release, or manually via Actions → Run workflow.
+# Produces:
+#   Startup-Scout-Mac.zip     — macOS .app bundle
+#   Startup-Scout-Windows.exe — Windows single-file executable
+# Both are attached to the release as downloadable assets.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to upload release assets
+
+jobs:
+  # ── macOS ──────────────────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS app
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build .app bundle
+        run: pyinstaller startup-scout.spec
+
+      - name: Zip app bundle
+        run: |
+          cd dist
+          zip -r "../Startup-Scout-Mac.zip" "Startup Scout.app"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Startup-Scout-Mac.zip
+
+  # ── Windows ────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build .exe
+        run: pyinstaller startup-scout.spec
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "dist/Startup Scout.exe"

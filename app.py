@@ -2,25 +2,59 @@ from flask import Flask, render_template, jsonify, request, session, redirect, u
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
-import json, os, re, subprocess, secrets, math, threading
+import json, os, re, subprocess, secrets, math, threading, sys, platform, shutil
 import openpyxl
 from datetime import datetime
 from io import BytesIO
 import ai_tasks
 
-app = Flask(__name__)
+# ── Frozen-bundle path (PyInstaller) ─────────────────────────────────────────
+# When frozen, templates/static live inside sys._MEIPASS (read-only temp dir).
+_FROZEN = getattr(sys, 'frozen', False)
+if _FROZEN:
+    _bundle = sys._MEIPASS
+    app = Flask(__name__,
+                template_folder=os.path.join(_bundle, 'templates'),
+                static_folder=os.path.join(_bundle, 'static'))
+else:
+    app = Flask(__name__)
+
 app.config['TEMPLATES_AUTO_RELOAD'] = True
-BASE = os.path.dirname(os.path.abspath(__file__))
-# DATA_DIR: override with env var to point at an EFS mount or persistent volume on AWS
-DATA_DIR = os.environ.get('DATA_DIR', BASE)
-EXCEL = os.path.join(DATA_DIR, 'Startup database.xlsx')
-UPDATES = os.path.join(DATA_DIR, 'updates.json')   # legacy — migrated on first run
-STARTUPS_DIR = os.path.join(DATA_DIR, 'startups')
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+BASE = os.path.dirname(os.path.abspath(__file__ if not _FROZEN else sys.executable))
+
+def _user_data_dir() -> str:
+    """Writable directory for user data (Excel, config, collections, etc.).
+
+    Priority:
+      1. DATA_DIR environment variable (cloud / advanced users)
+      2. ~/Documents/Startup Scout/  when running as a bundled desktop app
+      3. The project directory itself  in dev mode
+    """
+    if os.environ.get('DATA_DIR'):
+        return os.environ['DATA_DIR']
+    if _FROZEN:
+        docs = os.path.expanduser('~/Documents')
+        return os.path.join(docs, 'Startup Scout')
+    return os.path.dirname(os.path.abspath(__file__))
+
+DATA_DIR = _user_data_dir()
+os.makedirs(DATA_DIR, exist_ok=True)
+
+EXCEL          = os.path.join(DATA_DIR, 'Startup database.xlsx')
+UPDATES        = os.path.join(DATA_DIR, 'updates.json')   # legacy — migrated on first run
+STARTUPS_DIR   = os.path.join(DATA_DIR, 'startups')
 os.makedirs(STARTUPS_DIR, exist_ok=True)
-MIGRATED_FLAG = os.path.join(DATA_DIR, '.notes_migrated')
-PW_FILE = os.path.join(DATA_DIR, '.password_hash')
-SK_FILE = os.path.join(DATA_DIR, '.secret_key')
+MIGRATED_FLAG  = os.path.join(DATA_DIR, '.notes_migrated')
+PW_FILE        = os.path.join(DATA_DIR, '.password_hash')
+SK_FILE        = os.path.join(DATA_DIR, '.secret_key')
 COLLECTIONS_FILE = os.path.join(DATA_DIR, 'collections.json')
+SETUP_FLAG     = os.path.join(DATA_DIR, '.setup_complete')
+
+def _setup_needed() -> bool:
+    """True on first run: no setup flag and no existing spreadsheet."""
+    return not os.path.exists(SETUP_FLAG) and not os.path.exists(EXCEL)
 
 # ── Auth setup ───────────────────────────────────────────────────────────────
 
@@ -386,6 +420,8 @@ def load_startups():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if _setup_needed():
+        return redirect(url_for('setup'))
     error = None
     if request.method == 'POST':
         if check_password(request.form.get('password', '')):
@@ -402,7 +438,59 @@ def logout():
 @app.route('/')
 @login_required
 def index():
+    if _setup_needed():
+        return redirect(url_for('setup'))
     return render_template('index.html')
+
+# ── First-run setup ───────────────────────────────────────────────────────────
+
+@app.route('/setup')
+def setup():
+    if not _setup_needed():
+        return redirect(url_for('index'))
+    return render_template('setup.html')
+
+@app.route('/api/setup/upload', methods=['POST'])
+def api_setup_upload():
+    """Accept an uploaded .xlsx file and save it as the database."""
+    if not _setup_needed():
+        return jsonify({'ok': False, 'error': 'Already set up'})
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': 'No file received'})
+    if not f.filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({'ok': False, 'error': 'Please upload an Excel file (.xlsx)'})
+    try:
+        f.save(EXCEL)
+        # Validate it's a readable workbook
+        openpyxl.load_workbook(EXCEL, read_only=True, data_only=True).close()
+    except Exception as e:
+        try: os.remove(EXCEL)
+        except OSError: pass
+        return jsonify({'ok': False, 'error': f'Could not read that file: {e}'})
+
+    _apply_setup_password(request.form.get('password', '').strip())
+    _mark_setup_complete()
+    return jsonify({'ok': True})
+
+@app.route('/api/setup/start-fresh', methods=['POST'])
+def api_setup_start_fresh():
+    """Create an empty database so the user can start from scratch."""
+    if not _setup_needed():
+        return jsonify({'ok': False, 'error': 'Already set up'})
+    _ensure_excel()   # creates empty Excel with correct headers
+    _apply_setup_password(request.form.get('password', '').strip())
+    _mark_setup_complete()
+    return jsonify({'ok': True})
+
+def _apply_setup_password(pw: str):
+    if pw and len(pw) >= 4:
+        with open(PW_FILE, 'w') as fh:
+            fh.write(generate_password_hash(pw))
+
+def _mark_setup_complete():
+    with open(SETUP_FLAG, 'w') as fh:
+        fh.write(datetime.now().isoformat())
 
 @app.route('/api/startups')
 @login_required
