@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120" role="img" aria-label="EDF logo white">
+  <g>
+    <path d="M30 90 Q 50 30, 105 30 L 105 42 Q 65 42, 50 90 Z" fill="#ffffff"></path>
+    <path d="M40 90 Q 60 48, 105 48 L 105 60 Q 72 60, 60 90 Z" fill="#ffffff" opacity="0.8"></path>
+  </g>
+  <g fill="#ffffff" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="64" letter-spacing="-2">
+    <text x="115" y="82">EDF</text>
+  </g>
+</svg>

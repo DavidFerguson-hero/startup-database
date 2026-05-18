@@ -193,7 +193,7 @@ def daily_augment(excel_path=None):
         seed_desc = str(seed.get('Description', '') or '')[:300]
         seed_cty  = seed.get('Country', '') or ''
 
-        prompt = f"""I maintain a database of energy and cleantech startups for EDF Energy.
+        prompt = f"""I maintain a database of energy and cleantech startups for EDF Energy UK.
 
 One startup already in my database:
 - Name: {seed_name}
@@ -201,19 +201,20 @@ One startup already in my database:
 - Country: {seed_cty}
 - Description: {seed_desc}
 
-Search the web and identify exactly 2 REAL, currently-active startups that are similar to {seed_name}
+Search the web and identify exactly 2 REAL, currently-active UK-based startups that are similar to {seed_name}
 in technology or business model. Requirements:
+• Must be based in the United Kingdom (England, Scotland, Wales, or Northern Ireland)
 • Must exist and be operational
 • Must be in the energy, cleantech, sustainability, nuclear, or adjacent sector
 • Must NOT be {seed_name} itself
-• Must NOT be a large incumbent (no BP, Shell, EDF, etc.) — startups only
+• Must NOT be a large incumbent (no BP, Shell, EDF, National Grid, etc.) — startups only (founded after 2005, fewer than 500 employees)
 
 Return ONLY a JSON array (no other text) with exactly 2 objects:
 [
   {{
     "name": "Exact company name",
     "website": "https://...",
-    "country": "Country name",
+    "country": "United Kingdom",
     "description": "2-3 sentences describing what they do and why they are similar to {seed_name}",
     "category": "most relevant sub-category (e.g. Solar PV, Battery Storage & BESS, Heat Pumps (Residential), Hydrogen Production, AI & Data Analytics, Nuclear Operations & Digital Tools, etc.)"
   }},
@@ -284,20 +285,20 @@ def monthly_update(excel_path=None):
     client = _get_client()
     existing = _read_startups(excel_path)
 
-    active = [s for s in existing if s.get('Status') in ACTIVE_STATUSES and s.get('Company name')]
+    active = [s for s in existing if s.get('Status') == 'Advanced discussions' and s.get('Company name')]
     if not active:
         result = {
             'type': 'monthly_update',
             'timestamp': datetime.now().isoformat(),
             'checked': 0,
             'updated': [],
-            'errors': ['No active startups found (Early Exploration / Advanced discussions / Live collaboration).'],
+            'errors': ['No startups found with status "Advanced discussions".'],
         }
         _append_log(result)
         return result
 
-    # Cap at 10; use deterministic rotation via sorted order so different runs cover different startups
-    targets = sorted(active, key=lambda s: s.get('Company name', ''))[:10]
+    # Process all Advanced discussions startups (cap at 30 to control API costs)
+    targets = sorted(active, key=lambda s: s.get('Company name', ''))[:30]
 
     updated, errors = [], []
     today = datetime.now().strftime('%Y-%m-%d')
@@ -396,7 +397,7 @@ def find_similar_for_startup(startup_name, excel_path=None):
     seed_desc = str(seed.get('Description', '') or '')[:300]
     seed_cty  = seed.get('Country', '') or ''
 
-    prompt = f"""I maintain a database of energy and cleantech startups for EDF Energy.
+    prompt = f"""I maintain a database of energy and cleantech startups for EDF Energy UK.
 
 One startup already in my database:
 - Name: {seed_name}
@@ -404,23 +405,23 @@ One startup already in my database:
 - Country: {seed_cty}
 - Description: {seed_desc}
 
-Search the web and identify exactly 3 REAL, currently-active startups that are similar to {seed_name}
+Search the web and identify exactly 2 REAL, currently-active UK-based startups that are similar to {seed_name}
 in technology or business model. Requirements:
+• Must be based in the United Kingdom (England, Scotland, Wales, or Northern Ireland)
 • Must actually exist and be operational
 • Must be in the energy, cleantech, sustainability, nuclear, or adjacent sector
 • Must NOT be {seed_name} itself
-• Must NOT be large incumbents (no BP, Shell, Siemens, etc.) — startups only
+• Must NOT be large incumbents (no BP, Shell, National Grid, etc.) — startups only (founded after 2005, fewer than 500 employees)
 
-Return ONLY a JSON array with exactly 3 objects:
+Return ONLY a JSON array with exactly 2 objects:
 [
   {{
     "name": "Exact company name",
     "website": "https://...",
-    "country": "Country name",
+    "country": "United Kingdom",
     "description": "2-3 sentences describing what they do and why they are similar to {seed_name}",
     "category": "{seed_cat if seed_cat else 'most relevant sub-category'}"
   }},
-  {{ ... }},
   {{ ... }}
 ]"""
 
@@ -442,7 +443,7 @@ Return ONLY a JSON array with exactly 3 objects:
     hmap = _build_hmap(ws)
     added = []
 
-    for co in companies[:3]:
+    for co in companies[:2]:
         name = str(co.get('name', '') or '').strip()
         if not name or len(name) < 3 or name.lower() in ('none', 'n/a', 'unknown', ''):
             continue

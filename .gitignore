@@ -1,4 +1,5 @@
 # Security — never commit these
+.env
 .password_hash
 .secret_key
 

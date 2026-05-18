@@ -1,0 +1,99 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+
+# Required GitHub Actions secrets (Settings → Secrets and variables → Actions):
+#
+#   AWS_REGION            e.g. eu-west-1
+#   AWS_ACCOUNT_ID        12-digit AWS account number
+#   ECR_REPOSITORY        ECR repo name, e.g. startup-scout
+#   ECS_CLUSTER           ECS cluster name, e.g. startup-scout-cluster
+#   ECS_SERVICE           ECS service name, e.g. startup-scout-service
+#   ECS_CONTAINER         Container name inside the task definition, e.g. startup-scout
+
+jobs:
+  deploy:
+    name: Build & deploy
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # needed for OIDC auth to AWS (no long-lived keys)
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-startup-scout
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag and push Docker image
+        id: build
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+          docker push    $REGISTRY/$REPOSITORY:$IMAGE_TAG
+          # Also tag as 'latest' so it's easy to pull manually
+          docker tag  $REGISTRY/$REPOSITORY:$IMAGE_TAG \
+                      $REGISTRY/$REPOSITORY:latest
+          docker push $REGISTRY/$REPOSITORY:latest
+          echo "image=$REGISTRY/$REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Update ECS service (rolling deploy)
+        env:
+          CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          SERVICE: ${{ secrets.ECS_SERVICE }}
+          CONTAINER: ${{ secrets.ECS_CONTAINER }}
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          # Fetch the current task definition
+          TASK_DEF=$(aws ecs describe-services \
+            --cluster $CLUSTER --services $SERVICE \
+            --query 'services[0].taskDefinition' --output text)
+
+          # Swap the container image, strip fields ECS won't accept on re-register
+          NEW_TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition $TASK_DEF \
+            --query 'taskDefinition' \
+            | jq --arg IMAGE "$IMAGE" --arg NAME "$CONTAINER" '
+                del(.taskDefinitionArn, .revision, .status,
+                    .requiresAttributes, .compatibilities,
+                    .registeredAt, .registeredBy) |
+                .containerDefinitions |= map(
+                  if .name == $NAME then .image = $IMAGE else . end
+                )
+              ')
+
+          # Register the new revision
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+
+          # Update the service to use it (ECS does a rolling replacement)
+          aws ecs update-service \
+            --cluster $CLUSTER \
+            --service $SERVICE \
+            --task-definition $NEW_ARN
+
+          echo "Deployed $NEW_ARN"
+
+      - name: Wait for service to stabilise
+        env:
+          CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          SERVICE: ${{ secrets.ECS_SERVICE }}
+        run: |
+          aws ecs wait services-stable \
+            --cluster $CLUSTER \
+            --services $SERVICE
+          echo "Service is stable ✓"

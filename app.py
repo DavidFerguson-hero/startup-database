@@ -780,7 +780,8 @@ def api_export():
     startups = load_startups()
     if col_name:
         cols = load_collections()
-        members = set(cols.get(col_name, []))
+        col = cols.get(col_name, {})
+        members = set(col.get('startups', col) if isinstance(col, dict) else col)
         startups = [s for s in startups if s['name'] in members]
 
     rows = []
@@ -814,11 +815,20 @@ def api_export():
                      as_attachment=True, download_name=filename)
 
 # ── Collections ───────────────────────────────────────────────────────────────
+# Format: { "Portfolio name": { "startups": [...], "members": [...], "created_by": "..." } }
+# Legacy format (list) is migrated on first read.
+
+def _migrate_col(val):
+    """Upgrade old list format → new dict format."""
+    if isinstance(val, list):
+        return {'startups': val, 'members': [], 'created_by': ''}
+    return val
 
 def load_collections():
     if os.path.exists(COLLECTIONS_FILE):
         with open(COLLECTIONS_FILE) as f:
-            return json.load(f)
+            raw = json.load(f)
+        return {k: _migrate_col(v) for k, v in raw.items()}
     return {}
 
 def save_collections(cols):
@@ -833,13 +843,32 @@ def api_get_collections():
 @app.route('/api/collections/create', methods=['POST'])
 @login_required
 def api_create_collection():
-    name = request.get_json().get('name', '').strip()
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    created_by = data.get('created_by', '').strip()
     if not name:
         return jsonify({'ok': False, 'error': 'Name required'})
     cols = load_collections()
     if name in cols:
         return jsonify({'ok': False, 'error': 'Already exists'})
-    cols[name] = []
+    cols[name] = {'startups': [], 'members': [], 'created_by': created_by}
+    save_collections(cols)
+    return jsonify({'ok': True})
+
+@app.route('/api/collections/rename', methods=['POST'])
+@login_required
+def api_collection_rename():
+    data = request.get_json()
+    old_name = data.get('old_name', '').strip()
+    new_name = data.get('new_name', '').strip()
+    if not old_name or not new_name:
+        return jsonify({'ok': False, 'error': 'Names required'})
+    cols = load_collections()
+    if old_name not in cols:
+        return jsonify({'ok': False, 'error': 'Not found'})
+    if new_name in cols:
+        return jsonify({'ok': False, 'error': 'Name already taken'})
+    cols[new_name] = cols.pop(old_name)
     save_collections(cols)
     return jsonify({'ok': True})
 
@@ -852,8 +881,8 @@ def api_collection_add():
     cols = load_collections()
     if col_name not in cols:
         return jsonify({'ok': False, 'error': 'Collection not found'})
-    if startup not in cols[col_name]:
-        cols[col_name].append(startup)
+    if startup not in cols[col_name]['startups']:
+        cols[col_name]['startups'].append(startup)
     save_collections(cols)
     return jsonify({'ok': True})
 
@@ -864,8 +893,22 @@ def api_collection_remove():
     col_name = data.get('collection', '')
     startup  = data.get('startup', '')
     cols = load_collections()
-    if col_name in cols and startup in cols[col_name]:
-        cols[col_name].remove(startup)
+    if col_name in cols and startup in cols[col_name]['startups']:
+        cols[col_name]['startups'].remove(startup)
+    save_collections(cols)
+    return jsonify({'ok': True})
+
+@app.route('/api/collections/members', methods=['POST'])
+@login_required
+def api_collection_members():
+    """Set the members list for a portfolio."""
+    data = request.get_json()
+    col_name = data.get('collection', '')
+    members  = data.get('members', [])   # list of name strings
+    cols = load_collections()
+    if col_name not in cols:
+        return jsonify({'ok': False, 'error': 'Collection not found'})
+    cols[col_name]['members'] = [m.strip() for m in members if m.strip()]
     save_collections(cols)
     return jsonify({'ok': True})
 
@@ -877,6 +920,17 @@ def api_collection_delete():
     cols.pop(name, None)
     save_collections(cols)
     return jsonify({'ok': True})
+
+@app.route('/api/users')
+@login_required
+def api_get_users():
+    """Return a list of known user names for portfolio membership suggestions."""
+    users_file = os.path.join(DATA_DIR, 'users.json')
+    if os.path.exists(users_file):
+        with open(users_file) as f:
+            users = json.load(f)
+        return jsonify([u.get('name', u.get('email', '')) for u in users if u.get('active', True)])
+    return jsonify([])
 
 # ── AI Tasks ─────────────────────────────────────────────────────────────────
 

@@ -3,68 +3,145 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Startup Database — Login</title>
+<title>Startup Scout — EDF UK</title>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg: #0f172a; --surface: #1e293b; --surface2: #263348;
-    --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
-    --primary: #38bdf8; --radius: 8px;
-  }
-  body {
-    background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
-  }
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 12px; padding: 40px 36px; width: 100%; max-width: 360px;
-    display: flex; flex-direction: column; gap: 24px;
-  }
-  .logo { text-align: center; }
-  .logo .icon { font-size: 2rem; }
-  .logo h1 { font-size: 1.15rem; font-weight: 700; color: var(--primary); margin-top: 8px; }
-  .logo p  { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
-  .field { display: flex; flex-direction: column; gap: 6px; }
-  .field label { font-size: 0.8rem; color: var(--muted); font-weight: 500; }
-  .field input {
-    padding: 10px 14px; background: var(--bg); border: 1px solid var(--border);
-    border-radius: var(--radius); color: var(--text); font-size: 0.9rem; outline: none;
-    transition: border-color 0.15s;
-  }
-  .field input:focus { border-color: var(--primary); }
-  .btn {
-    background: var(--primary); color: #0f172a; border: none;
-    border-radius: var(--radius); padding: 10px; font-size: 0.9rem;
-    font-weight: 700; cursor: pointer; transition: opacity 0.15s;
-  }
-  .btn:hover { opacity: 0.85; }
-  .error {
-    background: #7f1d1d22; border: 1px solid #7f1d1d66;
-    border-radius: var(--radius); padding: 10px 14px;
-    font-size: 0.82rem; color: #fca5a5; text-align: center;
-  }
+@font-face { font-family: "EDF 2020"; font-style: normal; font-weight: 300; font-display: swap; src: url("/static/fonts/EDF2020-Light.otf") format("opentype"); }
+@font-face { font-family: "EDF 2020"; font-style: normal; font-weight: 400; font-display: swap; src: url("/static/fonts/EDF2020.otf") format("opentype"); }
+@font-face { font-family: "EDF 2020"; font-style: normal; font-weight: 700; font-display: swap; src: url("/static/fonts/EDF2020-Bold.otf") format("opentype"); }
+@font-face { font-family: "EDF 2020"; font-style: normal; font-weight: 800; font-display: swap; src: url("/static/fonts/EDF2020-ExtraBold.otf") format("opentype"); }
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-font-smoothing: antialiased; }
+body {
+  margin: 0;
+  font-family: "Open Sans", Arial, sans-serif;
+  background: linear-gradient(135deg, #FE5716 0%, #FF861D 50%, #FFB210 100%);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+body::after {
+  content: "";
+  position: absolute;
+  right: -200px; top: -200px;
+  width: 600px; height: 600px;
+  background: rgba(255,255,255,.12);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.login-card {
+  position: relative; z-index: 1;
+  background: #fff;
+  padding: 48px 48px 32px;
+  border-radius: 24px;
+  width: 460px; max-width: 100%;
+  box-shadow: 0 24px 56px rgba(16,54,122,.18);
+}
+.login-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+.edf-logo-svg { display: block; }
+.login-eyebrow {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.5px; color: #767676;
+  padding-left: 12px; border-left: 2px solid #FE5716;
+}
+.login-h1 {
+  font-family: "EDF 2020", "Open Sans", Arial, sans-serif;
+  font-weight: 700; text-transform: uppercase;
+  font-size: 48px; line-height: 0.92;
+  margin: 0 0 12px; color: #10367A;
+}
+.login-sub {
+  font-size: 14px; color: #3D3D3D;
+  margin: 0 0 32px; line-height: 1.5; font-weight: 300;
+}
+.login-form { display: flex; flex-direction: column; gap: 10px; }
+.field-label {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.4px; color: #767676;
+  display: block; margin-bottom: 6px;
+}
+.input-row { position: relative; }
+.input-lock {
+  position: absolute; left: 14px; top: 50%;
+  transform: translateY(-50%); color: #767676;
+  pointer-events: none;
+}
+.login-form input[type=password] {
+  width: 100%; padding: 14px 14px 14px 40px;
+  border: 1.5px solid #D4D4D4; border-radius: 8px;
+  font-size: 14px; font-family: inherit;
+  background: #fff; color: #000;
+  transition: border-color .15s;
+}
+.login-form input[type=password]:focus {
+  outline: none; border-color: #10367A;
+  box-shadow: 0 0 0 3px rgba(16,54,122,.18);
+}
+{% if error %}
+.login-form input[type=password] { border-color: #CB2C00; }
+{% endif %}
+.login-err {
+  font-size: 12px; color: #CB2C00; font-weight: 600;
+}
+.login-btn {
+  margin-top: 8px; padding: 14px; border: 0; border-radius: 999px;
+  background: #000; color: #fff; font-family: inherit;
+  font-weight: 700; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background .15s;
+}
+.login-btn:hover { background: #2A2A2A; }
+.login-foot {
+  display: flex; justify-content: space-between;
+  margin-top: 32px; padding-top: 16px;
+  border-top: 1px solid #E5E5E5;
+  font-size: 11px; color: #767676;
+}
+.shake { animation: shake 0.4s; }
+@keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="logo">
-    <div class="icon">⚡</div>
-    <h1>Startup Database</h1>
-    <p>Enter password to continue</p>
+<div class="login-card">
+  <div class="login-logo">
+    <img src="/static/edf-logo.png" alt="EDF" style="height:36px;width:auto;display:block;">
+    <div class="login-eyebrow">Innovation Scouting</div>
   </div>
+  <h1 class="login-h1">STARTUP<br>SCOUT</h1>
+  <p class="login-sub">Internal scouting database for clean-tech ventures. Sign in to continue.</p>
 
-  {% if error %}
-  <div class="error">{{ error }}</div>
-  {% endif %}
-
-  <form method="POST">
-    <div class="field" style="margin-bottom: 16px">
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password" autofocus autocomplete="current-password" placeholder="••••••••">
+  <form method="POST" class="login-form">
+    <label class="field-label" for="password">Access password</label>
+    <div class="input-row">
+      <span class="input-lock">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+        </svg>
+      </span>
+      <input type="password" id="password" name="password" autofocus
+             autocomplete="current-password" placeholder="Enter shared password"
+             {% if error %}class="shake"{% endif %}>
     </div>
-    <button type="submit" class="btn">Sign in →</button>
+    {% if error %}
+    <div class="login-err">Incorrect password — try again.</div>
+    {% endif %}
+    <button type="submit" class="login-btn">
+      Sign in
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h14M13 6l6 6-6 6"/>
+      </svg>
+    </button>
   </form>
+
+  <div class="login-foot">
+    <span>Internal · EDF Energy R&amp;D</span>
+    <span>Startup Scout</span>
+  </div>
 </div>
 </body>
 </html>
