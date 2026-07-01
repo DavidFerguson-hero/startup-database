@@ -1,0 +1,41 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="#001F5A"/>
+
+  <!-- Subtle grid dots -->
+  <g fill="#ffffff" opacity="0.04">
+    <circle cx="80" cy="80" r="3"/><circle cx="160" cy="80" r="3"/><circle cx="240" cy="80" r="3"/><circle cx="320" cy="80" r="3"/><circle cx="400" cy="80" r="3"/>
+    <circle cx="80" cy="160" r="3"/><circle cx="160" cy="160" r="3"/><circle cx="240" cy="160" r="3"/><circle cx="320" cy="160" r="3"/><circle cx="400" cy="160" r="3"/>
+    <circle cx="80" cy="240" r="3"/><circle cx="160" cy="240" r="3"/><circle cx="320" cy="240" r="3"/><circle cx="400" cy="240" r="3"/>
+    <circle cx="80" cy="320" r="3"/><circle cx="160" cy="320" r="3"/><circle cx="240" cy="320" r="3"/><circle cx="400" cy="320" r="3"/>
+    <circle cx="80" cy="400" r="3"/><circle cx="160" cy="400" r="3"/><circle cx="320" cy="400" r="3"/><circle cx="400" cy="400" r="3"/>
+  </g>
+
+  <!-- ROCKET -->
+  <g transform="translate(218, 228) scale(1.35)">
+    <ellipse cx="0" cy="88" rx="28" ry="36" fill="#FF6B00" opacity="0.85"/>
+    <ellipse cx="0" cy="82" rx="15" ry="22" fill="#FFD166" opacity="0.95"/>
+    <path d="M -26 55 L -26 -10 L -48 65 Z" fill="#0050D8"/>
+    <path d="M 26 55 L 26 -10 L 48 65 Z" fill="#0050D8"/>
+    <rect x="-26" y="-75" width="52" height="145" rx="8" fill="#ffffff"/>
+    <ellipse cx="0" cy="-75" rx="26" ry="52" fill="#ffffff"/>
+    <path d="M -26 -75 Q -10 -148 0 -155 Q 10 -148 26 -75 Z" fill="#ffffff"/>
+    <path d="M -26 -75 Q -10 -148 0 -155 Q 10 -148 26 -75 Z" fill="#0050D8" opacity="0.18"/>
+    <circle cx="0" cy="-28" r="17" fill="#001F5A"/>
+    <circle cx="0" cy="-28" r="13" fill="#1A3A8F"/>
+    <circle cx="-5" cy="-33" r="4" fill="#ffffff" opacity="0.45"/>
+    <rect x="-26" y="30" width="52" height="9" rx="0" fill="#0050D8" opacity="0.2"/>
+    <rect x="-18" y="68" width="36" height="14" rx="4" fill="#cccccc" opacity="0.7"/>
+  </g>
+
+  <!-- Magnifying glass -->
+  <g transform="translate(300, 255)">
+    <circle cx="0" cy="0" r="76" fill="none" stroke="#00E5A0" stroke-width="20" opacity="0.95"/>
+    <circle cx="0" cy="0" r="76" fill="#00E5A0" opacity="0.08"/>
+    <line x1="54" y1="54" x2="100" y2="103" stroke="#00E5A0" stroke-width="22" stroke-linecap="round"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="256" y="444" font-family="Helvetica Neue, Arial, sans-serif" font-size="36" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="6">STARTUP</text>
+  <text x="256" y="480" font-family="Helvetica Neue, Arial, sans-serif" font-size="36" font-weight="700" fill="#FF6200" text-anchor="middle" letter-spacing="10">SCOUT</text>
+</svg>

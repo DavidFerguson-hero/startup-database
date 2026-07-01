@@ -80,7 +80,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,              # Add icon='static/icon.icns' (Mac) / 'static/icon.ico' (Win) when ready
+    icon='icon.icns' if sys.platform == 'darwin' else None,
 )
 
 # macOS: wrap into a .app bundle
@@ -88,7 +88,7 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
         name='Startup Scout.app',
-        icon=None,
+        icon='icon.icns',
         bundle_identifier='com.startup-scout.app',
         info_plist={
             'NSHighResolutionCapable': True,
