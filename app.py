@@ -1093,6 +1093,82 @@ def api_ai_fill_websites():
 def api_ai_log():
     return jsonify(ai_tasks.get_log())
 
+@app.route('/api/ai/check-key')
+@login_required
+def api_ai_check_key():
+    key = os.environ.get('ANTHROPIC_API_KEY', '')
+    if not key or key == 'your-api-key-here':
+        return jsonify({'ok': False, 'configured': False, 'message': 'API key not set'})
+    if not key.startswith('sk-ant-'):
+        return jsonify({'ok': False, 'configured': True, 'message': 'Key format looks wrong (should start with sk-ant-)'})
+    return jsonify({'ok': True, 'configured': True, 'message': 'API key configured', 'preview': key[:12] + '…'})
+
+@app.route('/api/ai/set-key', methods=['POST'])
+@login_required
+def api_ai_set_key():
+    """Write ANTHROPIC_API_KEY to the .env file next to the executable / source."""
+    key = (request.get_json() or {}).get('key', '').strip()
+    if not key:
+        return jsonify({'ok': False, 'error': 'No key provided'})
+    if not key.startswith('sk-ant-'):
+        return jsonify({'ok': False, 'error': 'Key should start with sk-ant-'})
+    # Find the .env file — next to the executable (frozen) or source file (dev)
+    if _FROZEN:
+        env_path = os.path.join(os.path.dirname(sys.executable), '.env')
+    else:
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    # Read existing lines, replace or append the key
+    lines = []
+    replaced = False
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                if line.strip().startswith('ANTHROPIC_API_KEY'):
+                    lines.append(f'ANTHROPIC_API_KEY={key}\n')
+                    replaced = True
+                else:
+                    lines.append(line)
+    if not replaced:
+        lines.append(f'ANTHROPIC_API_KEY={key}\n')
+    with open(env_path, 'w') as f:
+        f.writelines(lines)
+    os.environ['ANTHROPIC_API_KEY'] = key   # apply immediately without restart
+    return jsonify({'ok': True})
+
+@app.route('/api/ai/gap-stats')
+@login_required
+def api_ai_gap_stats():
+    """Return counts of records with missing fields, for the AI panel."""
+    try:
+        _ensure_excel()
+        wb = openpyxl.load_workbook(EXCEL, read_only=True, data_only=True)
+        ws = wb.active
+        hmap = {}
+        for c in range(1, 120):
+            v = ws.cell(row=1, column=c).value
+            if v:
+                hmap[str(v).strip().lstrip('﻿')] = c
+        def col(name): return hmap.get(name, 0)
+        def bad_url(v):
+            if not v or str(v).strip().lower() in ('', '-', 'nan', 'none'): return True
+            u = str(v).strip().lower()
+            return 'linkedin.com' in u or 'crunchbase.com' in u
+        total = missing_web = missing_desc = adv_count = 0
+        for r in range(2, ws.max_row + 1):
+            name = ws.cell(r, col('Company name')).value
+            if not name: continue
+            total += 1
+            if bad_url(ws.cell(r, col('WBWSite')).value if col('WBWSite') else None): missing_web += 1
+            desc = ws.cell(r, col('Description')).value if col('Description') else ''
+            if not desc or len(str(desc).strip()) < 30: missing_desc += 1
+            status = ws.cell(r, col('Status')).value if col('Status') else ''
+            if status == 'Advanced discussions': adv_count += 1
+        wb.close()
+        return jsonify({'ok': True, 'total': total, 'missing_websites': missing_web,
+                        'missing_descriptions': missing_desc, 'advanced_discussions': adv_count})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
 # ── Health check (no auth — required by AWS ALB / ECS / App Runner) ──────────
 
 @app.route('/health')

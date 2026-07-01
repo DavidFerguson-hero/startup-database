@@ -1681,6 +1681,233 @@ function ManagePortfolioModal({ name, col, startups, knownUsers, onClose, onChan
 }
 
 // ─── Root App ────────────────────────────────────────────────────
+// ── AI Tools Panel ────────────────────────────────────────────────────────────
+function AiPanel({ onClose, onDone }) {
+  const [keyStatus, setKeyStatus]   = useState(null);
+  const [apiKey, setApiKey]         = useState('');
+  const [savingKey, setSavingKey]   = useState(false);
+  const [keyMsg, setKeyMsg]         = useState(null);
+  const [stats, setStats]           = useState(null);
+  const [log, setLog]               = useState([]);
+  const [tasks, setTasks]           = useState({}); // opKey → {status, result, taskId}
+  const pollRefs                    = useRef({});
+
+  const loadAll = () => {
+    fetch('/api/ai/check-key').then(r => r.json()).then(setKeyStatus);
+    fetch('/api/ai/gap-stats').then(r => r.json()).then(setStats);
+    fetch('/api/ai/log').then(r => r.json()).then(setLog);
+  };
+
+  useEffect(() => { loadAll(); return () => Object.values(pollRefs.current).forEach(clearInterval); }, []);
+
+  const saveKey = async () => {
+    if (!apiKey.trim()) return;
+    setSavingKey(true); setKeyMsg(null);
+    const res = await fetch('/api/ai/set-key', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ key: apiKey.trim() }),
+    });
+    const j = await res.json();
+    if (j.ok) { setKeyMsg({ok:true, text:'Key saved — AI features are now active.'}); setApiKey(''); loadAll(); }
+    else       { setKeyMsg({ok:false, text: j.error || 'Could not save key.'}); }
+    setSavingKey(false);
+  };
+
+  const startTask = async (opKey, endpoint) => {
+    setTasks(t => ({ ...t, [opKey]: { status: 'running', result: null } }));
+    try {
+      const res = await fetch(endpoint, { method: 'POST', headers: {'Content-Type':'application/json'} });
+      const j = await res.json();
+      if (!j.ok) { setTasks(t => ({ ...t, [opKey]: { status: 'error', result: { error: j.error } } })); return; }
+      const taskId = j.task_id;
+      pollRefs.current[opKey] = setInterval(async () => {
+        const sr = await fetch(`/api/ai/status/${taskId}`);
+        const sj = await sr.json();
+        if (sj.status === 'done' || sj.status === 'error') {
+          clearInterval(pollRefs.current[opKey]);
+          setTasks(t => ({ ...t, [opKey]: { status: sj.status, result: sj.result } }));
+          loadAll();
+          if (onDone) onDone();
+        }
+      }, 3000);
+    } catch(e) { setTasks(t => ({ ...t, [opKey]: { status: 'error', result: { error: String(e) } } })); }
+  };
+
+  const keyOk = keyStatus?.ok;
+  const cardStyle = (color) => ({
+    border: `1px solid ${color}22`, borderRadius: 10, padding: '14px 16px',
+    background: `${color}08`, marginBottom: 10,
+  });
+
+  const OpCard = ({ opKey, title, desc, statLine, endpoint, resultSummary }) => {
+    const t = tasks[opKey];
+    const running = t?.status === 'running';
+    const done    = t?.status === 'done';
+    const err     = t?.status === 'error';
+    return (
+      <div style={cardStyle('#10367A')}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12 }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:'var(--edf-black)', marginBottom:2 }}>{title}</div>
+            <div style={{ fontSize:11, color:'var(--edf-grey-500)', lineHeight:1.5 }}>{desc}</div>
+            {statLine && <div style={{ fontSize:11, color:'var(--edf-blue-deep)', marginTop:4, fontWeight:600 }}>{statLine}</div>}
+          </div>
+          <button onClick={() => startTask(opKey, endpoint)}
+            disabled={!keyOk || running}
+            style={{ flexShrink:0, padding:'6px 14px', borderRadius:7, border:'none', fontFamily:'inherit',
+              fontSize:11, fontWeight:700, cursor: !keyOk || running ? 'default' : 'pointer',
+              background: running ? 'var(--edf-grey-200)' : 'var(--edf-blue-deep)',
+              color: running ? 'var(--edf-grey-500)' : '#fff',
+              opacity: !keyOk ? 0.4 : 1 }}>
+            {running ? '⏳ Running…' : 'Run'}
+          </button>
+        </div>
+        {running && (
+          <div style={{ marginTop:8, fontSize:11, color:'var(--edf-grey-500)', display:'flex', alignItems:'center', gap:6 }}>
+            <span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'var(--edf-orange-deep)',
+              animation:'pulse 1.2s ease-in-out infinite' }}/>
+            Working — this can take a few minutes…
+          </div>
+        )}
+        {done && t.result && (
+          <div style={{ marginTop:8, padding:'7px 10px', borderRadius:6, background:'#E6F4E1', fontSize:11, color:'#2F6420', fontWeight:600 }}>
+            ✓ {resultSummary ? resultSummary(t.result) : 'Complete'}
+          </div>
+        )}
+        {err && (
+          <div style={{ marginTop:8, padding:'7px 10px', borderRadius:6, background:'#FEF2F2', fontSize:11, color:'#991B1B' }}>
+            ⚠ {t.result?.error || 'Error — check your API key and try again'}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const fmtLog = (entry) => {
+    if (entry.type === 'daily_augment') return `Added ${(entry.added||[]).length} startup${(entry.added||[]).length===1?'':'s'} (similar to ${(entry.seeds||[]).join(', ')})`;
+    if (entry.type === 'monthly_update') return `News update: ${(entry.updated||[]).length} of ${entry.checked||0} startups got notes`;
+    if (entry.type === 'find_similar')   return `Found ${(entry.added||[]).length} similar to ${entry.seed}`;
+    if (entry.type === 'fill_websites')  return `Filled ${(entry.updated||[]).length} missing websites`;
+    if (entry.type === 'fill_descriptions') return `Filled ${(entry.updated||[]).length} missing descriptions`;
+    return entry.type;
+  };
+
+  return (
+    <>
+      <div className="drawer-scrim" onClick={onClose}/>
+      <aside className="drawer" style={{ width: 480 }}>
+        <div className="dr-head" style={{ paddingBottom: 14 }}>
+          <button className="dr-close" onClick={onClose} style={{ position:'absolute', top:14, right:14 }}>✕</button>
+          <div className="dr-top">
+            <div style={{ width:44, height:44, borderRadius:10, background:'var(--edf-black)',
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>✦</div>
+            <div>
+              <h2 className="dr-name">AI tools</h2>
+              <div className="dr-sub">Augment your database with Claude</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="dr-body">
+
+          {/* ── API Key status ── */}
+          <div style={{ ...cardStyle(keyOk ? '#16A34A' : '#DC2626'), marginBottom: 16 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: keyOk ? 0 : 10 }}>
+              <span style={{ fontSize:16 }}>{keyOk ? '🟢' : '🔴'}</span>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color: keyOk ? '#166534' : '#991B1B' }}>
+                  {keyOk ? `API key active (${keyStatus.preview})` : 'API key not configured'}
+                </div>
+                <div style={{ fontSize:11, color:'var(--edf-grey-500)' }}>
+                  {keyOk ? 'All AI features are ready to use.' : 'Paste your key from console.anthropic.com'}
+                </div>
+              </div>
+            </div>
+            {!keyOk && (
+              <div style={{ display:'flex', gap:8, marginTop:8 }}>
+                <input value={apiKey} onChange={e => setApiKey(e.target.value)}
+                  placeholder="sk-ant-api03-…"
+                  onKeyDown={e => e.key === 'Enter' && saveKey()}
+                  style={{ flex:1, border:'1px solid var(--edf-grey-200)', borderRadius:6, padding:'7px 10px',
+                    fontSize:12, fontFamily:'inherit', outline:'none' }}/>
+                <button onClick={saveKey} disabled={savingKey || !apiKey.trim()}
+                  style={{ padding:'7px 14px', borderRadius:6, background:'var(--edf-orange-deep)', color:'#fff',
+                    border:'none', fontSize:12, fontWeight:700, cursor:'pointer', opacity: !apiKey.trim() ? 0.5 : 1 }}>
+                  {savingKey ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            )}
+            {keyMsg && (
+              <div style={{ marginTop:8, fontSize:11, fontWeight:600, color: keyMsg.ok ? '#166534' : '#991B1B' }}>
+                {keyMsg.text}
+              </div>
+            )}
+          </div>
+
+          {/* ── Operations ── */}
+          <h3 className="dr-h3" style={{ marginBottom:10 }}>Operations</h3>
+
+          <OpCard
+            opKey="fill-websites"
+            title="Fill missing websites"
+            desc="Search the web for the official website of every startup without one."
+            statLine={stats ? `${stats.missing_websites} of ${stats.total} startups missing a website` : null}
+            endpoint="/api/ai/fill-websites"
+            resultSummary={r => `Updated ${(r.updated||[]).length} website${(r.updated||[]).length===1?'':'s'}`}
+          />
+
+          <OpCard
+            opKey="fill-descriptions"
+            title="Fill missing descriptions"
+            desc="Write a 2–3 sentence factual description for any startup without one."
+            statLine={stats ? `${stats.missing_descriptions} of ${stats.total} startups missing a description` : null}
+            endpoint="/api/ai/fill-descriptions"
+            resultSummary={r => `Updated ${(r.updated||[]).length} description${(r.updated||[]).length===1?'':'s'}`}
+          />
+
+          <OpCard
+            opKey="news-update"
+            title="News update — Advanced discussions"
+            desc="Search for recent news on every startup in 'Advanced discussions' and add a timestamped note to each."
+            statLine={stats ? `${stats.advanced_discussions} startup${stats.advanced_discussions===1?'':'s'} in Advanced discussions` : null}
+            endpoint="/api/ai/monthly-update"
+            resultSummary={r => `${(r.updated||[]).length} of ${r.checked||0} startups got new notes`}
+          />
+
+          <OpCard
+            opKey="find-similar"
+            title="Find similar startups"
+            desc="Pick 2 startups at random, find 2 similar UK-based startups for each, and add them to the database."
+            statLine={stats ? `${stats.total} startups in database` : null}
+            endpoint="/api/ai/daily-augment"
+            resultSummary={r => `Added ${(r.added||[]).length} new startup${(r.added||[]).length===1?'':'s'}`}
+          />
+
+          {/* ── Recent log ── */}
+          {log.length > 0 && (
+            <>
+              <h3 className="dr-h3" style={{ marginTop:20, marginBottom:10 }}>Recent activity</h3>
+              <ul style={{ listStyle:'none', padding:0, margin:0 }}>
+                {log.slice(0,6).map((entry, i) => (
+                  <li key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start',
+                    padding:'7px 0', borderBottom:'1px solid var(--edf-grey-100)', gap:8 }}>
+                    <div style={{ fontSize:11, color:'var(--edf-grey-700)', flex:1 }}>{fmtLog(entry)}</div>
+                    <div style={{ fontSize:10, color:'var(--edf-grey-400)', whiteSpace:'nowrap', flexShrink:0 }}>
+                      {entry.timestamp ? fmtDate(entry.timestamp.slice(0,10)) : ''}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+        </div>
+      </aside>
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+    </>
+  );
+}
+
 function App() {
   const [startups, setStartups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1692,6 +1919,7 @@ function App() {
   const [sortBy, setSortBy] = useState('lastTouch');
   const [picked, setPicked] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showAI, setShowAI] = useState(false);
   const [showNewPortfolio, setShowNewPortfolio] = useState(false);
   const [managePortfolio, setManagePortfolio] = useState(null);   // portfolio name string
 
@@ -1789,6 +2017,14 @@ function App() {
           <button className="nav-add" onClick={() => setShowAdd(true)}>
             <IcoPlus size={13}/> Add venture
           </button>
+          <button onClick={() => setShowAI(true)}
+            style={{ background:'none', border:'1px solid var(--edf-grey-200)', borderRadius:8,
+              padding:'5px 11px', fontSize:12, fontWeight:700, cursor:'pointer',
+              color:'var(--edf-grey-700)', display:'flex', alignItems:'center', gap:5 }}
+            onMouseEnter={e=>{e.currentTarget.style.background='var(--edf-grey-100)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background='none';}}>
+            ✦ AI tools
+          </button>
           <div className="nav-acct" title="EDF Scouting">EDF</div>
         </div>
       </header>
@@ -1864,6 +2100,14 @@ function App() {
         <VentureModal
           onClose={() => setShowAdd(false)}
           onSaved={reload}
+        />
+      )}
+
+      {/* ── AI tools panel ── */}
+      {showAI && (
+        <AiPanel
+          onClose={() => setShowAI(false)}
+          onDone={reload}
         />
       )}
 
