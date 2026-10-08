@@ -28,7 +28,12 @@ else:
 # ── .env loader ───────────────────────────────────────────────────────────────
 # Check next to the executable first (for end users who create a .env there),
 # then fall back to the bundle/source directory.
-for _env_candidate in [os.path.join(_exe_dir, '.env'), os.path.join(_bundle_dir, '.env')]:
+# The desktop app's settings file (API key, optional DATA_DIR) lives in ~/Documents/Startup Scout
+# so it survives installing a new version of the app. Earlier files don't override later ones.
+_env_candidates = [os.path.join(_exe_dir, '.env'), os.path.join(_bundle_dir, '.env')]
+if getattr(sys, 'frozen', False):
+    _env_candidates.insert(0, os.path.join(os.path.expanduser('~/Documents'), 'Startup Scout', '.env'))
+for _env_candidate in _env_candidates:
     if os.path.exists(_env_candidate):
         with open(_env_candidate) as _f:
             for _line in _f:
@@ -36,7 +41,6 @@ for _env_candidate in [os.path.join(_exe_dir, '.env'), os.path.join(_bundle_dir,
                 if _line and not _line.startswith('#') and '=' in _line:
                     _k, _v = _line.split('=', 1)
                     os.environ.setdefault(_k.strip(), _v.strip().strip('"\''))
-        break
 
 # ── Config ───────────────────────────────────────────────────────────────────
 PORT = int(os.environ.get('PORT', 5001))

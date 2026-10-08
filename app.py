@@ -1120,9 +1120,10 @@ def api_ai_set_key():
         return jsonify({'ok': False, 'error': 'No key provided'})
     if not key.startswith('sk-ant-'):
         return jsonify({'ok': False, 'error': 'Key should start with sk-ant-'})
-    # Find the .env file — next to the executable (frozen) or source file (dev)
+    # Desktop app: ~/Documents/Startup Scout/.env (read by launcher.py); dev: next to the source
     if _FROZEN:
-        env_path = os.path.join(os.path.dirname(sys.executable), '.env')
+        env_path = os.path.join(os.path.expanduser('~/Documents'), 'Startup Scout', '.env')
+        os.makedirs(os.path.dirname(env_path), exist_ok=True)
     else:
         env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
     # Read existing lines, replace or append the key
