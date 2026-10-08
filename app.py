@@ -336,12 +336,14 @@ def _ensure_excel():
     """Create an empty Excel file with correct headers if none exists (e.g. fresh Railway deploy)."""
     if not os.path.exists(EXCEL):
         os.makedirs(os.path.dirname(EXCEL), exist_ok=True) if os.path.dirname(EXCEL) else None
-        cols = ['Company name', 'Category', 'Theme', 'Website', 'Description',
-                'Contact name', 'Contact email', 'Status', 'Country', 'Tags'] + BU_CHECKBOX_COLS + ['Notes']
+        cols = (['Company name', 'Category', 'Status', 'Country', 'Description', 'Status comment', 'WBWSite',
+                 'Added by', 'Key contact', 'Key contact email', 'Relationship owner', 'Avoid', 'NDA signed',
+                 'EDF PV portfolio'] + BU_CHECKBOX_COLS + ['Notes'])
         pd.DataFrame(columns=cols).to_excel(EXCEL, index=False)
 
 def load_startups():
-    _ensure_excel()
+    if not os.path.exists(EXCEL):
+        return []
     df = pd.read_excel(EXCEL, header=0)
     df = df.where(pd.notna(df), None)
     df.columns = [c.lstrip('\ufeff').strip() for c in df.columns]
@@ -1237,7 +1239,9 @@ def api_ai_notes_commit():
 def api_ai_gap_stats():
     """Return counts of records with missing fields, for the AI panel."""
     try:
-        _ensure_excel()
+        if not os.path.exists(EXCEL):
+            return jsonify({'ok': True, 'total': 0, 'missing_websites': 0,
+                            'missing_descriptions': 0, 'advanced_discussions': 0})
         wb = openpyxl.load_workbook(EXCEL, read_only=True, data_only=True)
         ws = wb.active
         hmap = {}
@@ -1276,6 +1280,8 @@ def health():
 
 def ensure_new_columns():
     """Add new field column headers to the spreadsheet if they don't exist yet."""
+    if not os.path.exists(EXCEL):
+        return
     try:
         wb = openpyxl.load_workbook(EXCEL)
         ws = wb.active
