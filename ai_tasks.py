@@ -670,6 +670,120 @@ def fill_missing_descriptions(excel_path=None):
     return result
 
 
+_NAME_SUFFIXES = re.compile(r'\b(ltd|limited|plc|inc|llc|gmbh|uk|ai|io|technologies|technology|tech|group|co)\b')
+
+def _norm_name(name):
+    s = _NAME_SUFFIXES.sub(' ', str(name or '').lower())
+    return re.sub(r'[^a-z0-9]', '', s)
+
+
+def _match_existing(name, existing_names):
+    """Return the existing company name that looks like the same company, if any."""
+    n = _norm_name(name)
+    if not n:
+        return None
+    for ex in existing_names:
+        e = _norm_name(ex)
+        if not e:
+            continue
+        if n == e or (min(len(n), len(e)) >= 5 and (n.startswith(e) or e.startswith(n))):
+            return ex
+    return None
+
+
+def extract_startups_from_notes(notes, categories, statuses, business_units, excel_path=None):
+    """Parse free-form meeting notes into proposed startup records, filling gaps via web search.
+
+    Nothing is written to the database; the caller reviews and commits the proposals.
+    """
+    if excel_path is None:
+        excel_path = EXCEL_DEFAULT
+    client = _get_client()
+    existing_names = [str(s.get('Company name', '')).strip() for s in _read_startups(excel_path)]
+
+    prompt = f"""I maintain a database of energy and cleantech startups for EDF Energy UK's innovation team.
+Below are rough notes a colleague took (e.g. at a pitch event or meeting). They may mention one or many
+companies, and contain typos, shorthand, partial names, contact details and EDF-internal abbreviations.
+
+<notes>
+{notes}
+</notes>
+
+Your job:
+1. Identify every distinct company mentioned. Merge mentions of the same company (e.g. a name in an agenda
+   list plus a later section of notes, or misspellings like "Enramiq"/"Engramiq"). Use the correct official
+   company name.
+2. For each company, use web search to confirm what it is and fill in what the notes don't say: official
+   website, country, and a factual 2-3 sentence description. Prefer the company's own site. If you can't
+   verify a fact, leave it empty rather than guessing.
+3. Put companies that are clearly NOT startups/scaleups (e.g. advisory firms, consultancies, banks, event
+   hosts, large incumbents, EDF's own business units) in "skipped" with a short reason — unless the notes
+   show they were pitching a product.
+
+Field rules:
+- country: short English name; use "UK" (not "United Kingdom") and "USA" (not "United States").
+- category: exactly one from this list, or "" if none fit: {json.dumps(categories)}
+- status: one of {json.dumps(statuses)}. If the notes record an actual conversation or pitch, use
+  "Met but no live discussions"; if they're only named, use "No contact"; use later stages only if the notes
+  say so explicitly.
+- business_units: EDF business units the notes link them to, chosen only from {json.dumps(business_units)}.
+  "EDFps", "EDF ps" or "PS" means "EDF Power Solutions". Empty list if none mentioned.
+- key_contact / key_contact_email: people named in the notes for this company. Multiple people →
+  "Name (role), Name". Fix an obvious typo in an email domain only if the website confirms the right domain.
+- status_comment: one short line on where things stand or what they're looking for (e.g. "Raising £750k
+  pre-seed; seeking UK renewable pilot").
+- note: a tidy, factual write-up of everything the notes say about this company (problem, solution, traction,
+  TRL, raise, asks, EDF relevance, open questions). Keep every specific from the notes; don't invent. Plain
+  text using short "- " bullet lines. Empty string if the notes only name the company.
+- from_web: names of the fields you filled from web search rather than from the notes.
+
+After any searching, return ONLY JSON in this shape:
+```json
+{{
+  "context": "the event or meeting these notes are from, if evident, else empty",
+  "startups": [
+    {{
+      "name": "", "website": "https://...", "country": "", "description": "", "category": "",
+      "status": "", "status_comment": "", "key_contact": "", "key_contact_email": "",
+      "business_units": [], "note": "", "from_web": []
+    }}
+  ],
+  "skipped": [{{"name": "", "reason": ""}}]
+}}
+```"""
+
+    search_tool = {**WEB_SEARCH_TOOL, 'max_uses': 15}
+    text = _call_claude(client, prompt, max_tokens=16000, search_tool=search_tool)
+    data = _parse_json(text)
+    if isinstance(data, list):
+        data = {'startups': data}
+
+    cats, stats, bus = set(categories), set(statuses), set(business_units)
+    proposals = []
+    for s in data.get('startups') or []:
+        name = str(s.get('name') or '').strip()
+        if not name:
+            continue
+        rec = {k: str(s.get(k) or '').strip() for k in
+               ('website', 'country', 'description', 'category', 'status', 'status_comment',
+                'key_contact', 'key_contact_email', 'note')}
+        rec['name'] = name
+        if rec['category'] not in cats:
+            rec['category'] = ''
+        if rec['status'] not in stats:
+            rec['status'] = statuses[0]
+        rec['business_units'] = [b for b in (s.get('business_units') or []) if b in bus]
+        rec['from_web'] = [f for f in (s.get('from_web') or []) if isinstance(f, str)]
+        rec['existing_match'] = _match_existing(name, existing_names)
+        proposals.append(rec)
+
+    return {
+        'context': str(data.get('context') or '').strip(),
+        'startups': proposals,
+        'skipped': [k for k in (data.get('skipped') or []) if isinstance(k, dict)],
+    }
+
+
 def get_log(n=20):
     """Return the n most recent AI task log entries."""
     if not os.path.exists(AI_LOG_FILE):

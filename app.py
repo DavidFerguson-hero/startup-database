@@ -652,59 +652,65 @@ def api_add_startup():
     try:
         wb = openpyxl.load_workbook(EXCEL)
         ws = wb.active
-
-        # Build header → column index map from row 1
-        hmap = {}
-        for c in range(1, 40):
-            v = ws.cell(row=1, column=c).value
-            if v:
-                hmap[str(v).strip().lstrip('\ufeff')] = c
-
-        name_col = hmap.get('Company name', 1)
-
-        # Duplicate check
-        for r in range(2, ws.max_row + 1):
-            existing = ws.cell(row=r, column=name_col).value
-            if existing and str(existing).strip().lower() == name.lower():
-                return jsonify({'ok': False, 'error': f'"{name}" already exists in the database'})
-
-        next_row = ws.max_row + 1
-
-        def w(header, value):
-            col = hmap.get(header)
-            if col and value is not None:
-                ws.cell(row=next_row, column=col).value = value
-
-        w('Company name',      name)
-        w('Category',          data.get('category'))
-        w('Status',            data.get('status') or 'No contact')
-        w('Country',           data.get('country'))
-        w('Description',       data.get('description'))
-        w('Status comment',    data.get('status_comment'))
-        w('WBWSite',           data.get('website'))
-        w('Added by',          data.get('added_by'))
-        w('Key contact',       data.get('key_contact'))
-        w('Key contact email', data.get('key_contact_email'))
-        w('Relationship owner',data.get('relationship_owner'))
-        w('Avoid',             data.get('avoid', 'No'))
-        # EDF PV column header has trailing spaces in the file
-        edf_col = next((c for h, c in hmap.items() if 'pv' in h.lower() and 'portfolio' in h.lower()), None)
-        if edf_col:
-            ws.cell(row=next_row, column=edf_col).value = data.get('edf_pv', 'No')
-        w('NDA signed', data.get('nda', 'No'))
-
-        # BU checkboxes
-        bus = data.get('business_units', [])
-        for bu in BU_CHECKBOX_COLS:
-            col = hmap.get(bu)
-            if col:
-                ws.cell(row=next_row, column=col).value = (bu in bus)
-
+        hmap = _row1_header_map(ws)
+        if _find_row_ci(ws, hmap, name):
+            return jsonify({'ok': False, 'error': f'"{name}" already exists in the database'})
+        _append_startup_row(ws, hmap, {**data, 'name': name})
         wb.save(EXCEL)
         os.makedirs(startup_folder(name), exist_ok=True)
         return jsonify({'ok': True, 'name': name})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
+
+def _row1_header_map(ws):
+    hmap = {}
+    for c in range(1, 120):
+        v = ws.cell(row=1, column=c).value
+        if v:
+            hmap[str(v).strip().lstrip('﻿')] = c
+    return hmap
+
+def _find_row_ci(ws, hmap, name):
+    name_col = hmap.get('Company name', 1)
+    target = name.strip().lower()
+    for r in range(2, ws.max_row + 1):
+        v = ws.cell(row=r, column=name_col).value
+        if v and str(v).strip().lower() == target:
+            return r
+    return None
+
+def _append_startup_row(ws, hmap, data):
+    next_row = ws.max_row + 1
+
+    def w(header, value):
+        col = hmap.get(header)
+        if col and value is not None:
+            ws.cell(row=next_row, column=col).value = value
+
+    w('Company name',      data['name'])
+    w('Category',          data.get('category'))
+    w('Status',            data.get('status') or 'No contact')
+    w('Country',           data.get('country'))
+    w('Description',       data.get('description'))
+    w('Status comment',    data.get('status_comment'))
+    w('WBWSite',           data.get('website'))
+    w('Added by',          data.get('added_by'))
+    w('Key contact',       data.get('key_contact'))
+    w('Key contact email', data.get('key_contact_email'))
+    w('Relationship owner',data.get('relationship_owner'))
+    w('Avoid',             data.get('avoid', 'No'))
+    # EDF PV column header has trailing spaces in the file
+    edf_col = next((c for h, c in hmap.items() if 'pv' in h.lower() and 'portfolio' in h.lower()), None)
+    if edf_col:
+        ws.cell(row=next_row, column=edf_col).value = data.get('edf_pv', 'No')
+    w('NDA signed', data.get('nda', 'No'))
+
+    bus = data.get('business_units', [])
+    for bu in BU_CHECKBOX_COLS:
+        col = hmap.get(bu)
+        if col:
+            ws.cell(row=next_row, column=col).value = (bu in bus)
+    return next_row
 
 # ── Edit startup ─────────────────────────────────────────────────────────────
 
@@ -1134,6 +1140,97 @@ def api_ai_set_key():
         f.writelines(lines)
     os.environ['ANTHROPIC_API_KEY'] = key   # apply immediately without restart
     return jsonify({'ok': True})
+
+@app.route('/api/ai/notes-extract', methods=['POST'])
+@login_required
+def api_ai_notes_extract():
+    notes = ((request.get_json() or {}).get('notes') or '').strip()
+    if len(notes) < 3:
+        return jsonify({'ok': False, 'error': 'Paste some notes first'})
+    if len(notes) > 40000:
+        return jsonify({'ok': False, 'error': 'Notes are too long — split them into a few smaller batches'})
+    task_id = secrets.token_hex(8)
+    _ai_tasks[task_id] = {'status': 'running', 'started': datetime.now().isoformat(), 'result': None}
+    def run():
+        try:
+            result = ai_tasks.extract_startups_from_notes(
+                notes, list(SUBCAT_THEME.keys()), STATUS_OPTIONS, BU_CHECKBOX_COLS, EXCEL)
+            result['categories'] = sorted(SUBCAT_THEME.keys())
+            _ai_tasks[task_id].update(status='done', result=result)
+        except Exception as e:
+            _ai_tasks[task_id].update(status='error', result={'error': str(e)})
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'ok': True, 'task_id': task_id})
+
+MERGE_FILL_FIELDS = {
+    'website': 'WBWSite', 'description': 'Description', 'category': 'Category', 'country': 'Country',
+    'key_contact': 'Key contact', 'key_contact_email': 'Key contact email', 'status_comment': 'Status comment',
+}
+
+@app.route('/api/ai/notes-commit', methods=['POST'])
+@login_required
+def api_ai_notes_commit():
+    """Write reviewed proposals: action 'add' appends a new row; 'merge' fills blanks on an existing one.
+    Either way the meeting note is appended as a dated note."""
+    body = request.get_json() or {}
+    records = body.get('records') or []
+    context = (body.get('context') or '').strip()
+    added_by = (body.get('added_by') or '').strip() or 'AI (from notes)'
+    today = datetime.now().strftime('%Y-%m-%d')
+    added, merged, errors = [], [], []
+    try:
+        wb = openpyxl.load_workbook(EXCEL)
+        ws = wb.active
+        hmap = _row1_header_map(ws)
+        for rec in records:
+            name = (rec.get('name') or '').strip()
+            if not name:
+                continue
+            if rec.get('action') == 'merge':
+                target = (rec.get('existing_name') or name).strip()
+                row = _find_row_ci(ws, hmap, target)
+                if not row:
+                    errors.append(f'{target}: not found in database')
+                    continue
+                for field, header in MERGE_FILL_FIELDS.items():
+                    col = hmap.get(header)
+                    val = (rec.get(field) or '').strip()
+                    cur = ws.cell(row=row, column=col).value if col else None
+                    if col and val and (cur is None or str(cur).strip() in ('', '-', 'nan')):
+                        ws.cell(row=row, column=col).value = val
+                status_col = hmap.get('Status')
+                if status_col and rec.get('status') in STATUS_OPTIONS:
+                    cur = ws.cell(row=row, column=status_col).value
+                    cur_i = STATUS_OPTIONS.index(cur) if cur in STATUS_OPTIONS else -1
+                    if STATUS_OPTIONS.index(rec['status']) > cur_i:
+                        ws.cell(row=row, column=status_col).value = rec['status']
+                for bu in rec.get('business_units') or []:
+                    if bu in BU_CHECKBOX_COLS and hmap.get(bu):
+                        ws.cell(row=row, column=hmap[bu]).value = True
+                merged.append(target)
+            else:
+                if _find_row_ci(ws, hmap, name):
+                    errors.append(f'{name}: already exists — choose "Add note to existing" instead')
+                    continue
+                row = _append_startup_row(ws, hmap, {**rec, 'name': name, 'added_by': added_by})
+                os.makedirs(startup_folder(name), exist_ok=True)
+                added.append(name)
+
+            note = (rec.get('note') or '').strip()
+            if note:
+                if context:
+                    note = f'[{context}]\n{note}'
+                note_cols = get_note_col_indices(ws, 1)
+                filled = sum(1 for c in note_cols if ws.cell(row=row, column=c).value is not None)
+                col = ensure_note_col(ws, 1, filled + 1)
+                ws.cell(row=row, column=col).value = format_note_cell(today, note)
+        if added or merged:
+            wb.save(EXCEL)
+        ai_tasks._append_log({'type': 'notes_import', 'timestamp': datetime.now().isoformat(),
+                              'added': added, 'merged': merged, 'errors': errors})
+        return jsonify({'ok': True, 'added': added, 'merged': merged, 'errors': errors})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
 
 @app.route('/api/ai/gap-stats')
 @login_required

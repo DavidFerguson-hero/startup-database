@@ -1260,7 +1260,7 @@ function DetailDrawer({ s, onClose, onStatusChange, collections, onCollectionsCh
                 <li key={i}>
                   <span className="tl-dot"/>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:12 }}>{u.text}</div>
+                    <div style={{ fontSize:12, whiteSpace:'pre-wrap' }}>{u.text}</div>
                     <div className="dr-note-meta">{u.date && fmtDate(u.date)}{u.author ? ` · ${u.author}` : ''}</div>
                   </div>
                   <button onClick={() => deleteNote(i)} title="Delete note"
@@ -1682,6 +1682,234 @@ function ManagePortfolioModal({ name, col, startups, knownUsers, onClose, onChan
 
 // ─── Root App ────────────────────────────────────────────────────
 // ── AI Tools Panel ────────────────────────────────────────────────────────────
+// ─── Add from notes (AI) ─────────────────────────────────────────
+function NotesImportModal({ onClose, onSaved }) {
+  const [stage, setStage]       = useState('input'); // input | working | review | done
+  const [notes, setNotes]       = useState('');
+  const [addedBy, setAddedBy]   = useState('');
+  const [keyOk, setKeyOk]       = useState(null);
+  const [error, setError]       = useState(null);
+  const [context, setContext]   = useState('');
+  const [recs, setRecs]         = useState([]);
+  const [skipped, setSkipped]   = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [saving, setSaving]     = useState(false);
+  const [outcome, setOutcome]   = useState(null);
+  const pollRef = useRef(null);
+
+  useEffect(() => {
+    fetch('/api/ai/check-key').then(r => r.json()).then(j => setKeyOk(!!j.ok)).catch(() => setKeyOk(false));
+    return () => clearInterval(pollRef.current);
+  }, []);
+
+  const extract = async () => {
+    setError(null); setStage('working');
+    try {
+      const res = await fetch('/api/ai/notes-extract', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notes }),
+      });
+      const j = await res.json();
+      if (!j.ok) { setError(j.error); setStage('input'); return; }
+      pollRef.current = setInterval(async () => {
+        const sj = await fetch(`/api/ai/status/${j.task_id}`).then(r => r.json()).catch(() => null);
+        if (!sj || sj.status === 'running') return;
+        clearInterval(pollRef.current);
+        if (sj.status === 'error') { setError(sj.result?.error || 'Extraction failed'); setStage('input'); return; }
+        const r = sj.result;
+        setContext(r.context || '');
+        setSkipped(r.skipped || []);
+        setCategories(r.categories || []);
+        setRecs((r.startups || []).map(s => ({
+          ...s, include: true,
+          action: s.existing_match ? 'merge' : 'add',
+          existing_name: s.existing_match || '',
+        })));
+        setStage('review');
+      }, 3000);
+    } catch (e) { setError(String(e)); setStage('input'); }
+  };
+
+  const upd = (i, k, v) => setRecs(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  const toggleBU = (i, bu) => setRecs(rs => rs.map((r, j) => j !== i ? r : {
+    ...r, business_units: r.business_units.includes(bu) ? r.business_units.filter(b => b !== bu) : [...r.business_units, bu],
+  }));
+
+  const chosen = recs.filter(r => r.include && r.name.trim());
+
+  const commit = async () => {
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch('/api/ai/notes-commit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: chosen, context, added_by: addedBy }),
+      });
+      const j = await res.json();
+      if (!j.ok) { setError(j.error); return; }
+      setOutcome(j); setStage('done');
+      if (onSaved) onSaved();
+    } catch (e) { setError(String(e)); }
+    finally { setSaving(false); }
+  };
+
+  const WebTag = ({ rec, field }) => rec.from_web?.includes(field)
+    ? <span title="Found by web search — please check" style={{ marginLeft:6, fontSize:9, fontWeight:700, color:'var(--edf-blue-medium)',
+        border:'1px solid var(--edf-blue-medium)', borderRadius:4, padding:'0 4px', textTransform:'uppercase' }}>web</span>
+    : null;
+
+  const msgBox = (bg, fg, text) => (
+    <div style={{ padding:'9px 12px', borderRadius:8, background:bg, color:fg, fontSize:12, fontWeight:600 }}>{text}</div>
+  );
+
+  return (
+    <div className="modal-scrim" onClick={e => e.target === e.currentTarget && stage !== 'working' && onClose()}>
+      <div className="modal-card" style={{ maxWidth: stage === 'review' ? 880 : 640 }}>
+        <div className="modal-head">
+          <h2>✦ Add from notes</h2>
+          <p>Paste rough notes about one or more startups. Claude identifies each company, fills in what it can and looks up the rest.</p>
+          <button className="modal-close" onClick={onClose} disabled={stage === 'working'}>✕</button>
+        </div>
+
+        {stage === 'input' && (
+          <>
+            <div className="modal-body">
+              {keyOk === false && msgBox('#FEF2F2', '#991B1B', 'No Anthropic API key is set — add one under ✦ AI tools first.')}
+              {error && msgBox('#FEF2F2', '#991B1B', `⚠ ${error}`)}
+              <div className="form-grid">
+                <label className="full"><span>Notes</span>
+                  <textarea rows="14" value={notes} onChange={e => setNotes(e.target.value)} autoFocus
+                    placeholder={'e.g.\n\nAcme Grid\nJane Smith, CEO, jane@acmegrid.com\nAI forecasting for DNO flexibility tenders\nRaising £1m seed, keen on a pilot with EDFps'}
+                    style={{ fontFamily:'inherit', lineHeight:1.5, resize:'vertical' }}/></label>
+                <label><span>Added by (optional)</span>
+                  <input value={addedBy} onChange={e => setAddedBy(e.target.value)} placeholder="Your name"/></label>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-ghost btn-sm" onClick={onClose}>Cancel</button>
+              <button type="button" className="btn-primary btn-sm" onClick={extract}
+                disabled={!notes.trim() || keyOk === false} style={{ opacity: !notes.trim() || keyOk === false ? 0.5 : 1 }}>
+                ✦ Extract startups
+              </button>
+            </div>
+          </>
+        )}
+
+        {stage === 'working' && (
+          <div className="modal-body" style={{ alignItems:'center', textAlign:'center', padding:'48px 28px' }}>
+            <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'var(--edf-orange-deep)',
+              animation:'pulse 1.2s ease-in-out infinite' }}/>
+            <div style={{ fontSize:14, fontWeight:700, color:'var(--edf-blue-deep)' }}>Reading your notes and searching the web…</div>
+            <div style={{ fontSize:12, color:'var(--edf-grey-500)' }}>This usually takes 1–3 minutes, depending on how many companies are mentioned. Nothing is saved until you review it.</div>
+            <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+          </div>
+        )}
+
+        {stage === 'review' && (
+          <>
+            <div className="modal-body">
+              {error && msgBox('#FEF2F2', '#991B1B', `⚠ ${error}`)}
+              <div className="form-grid">
+                <label className="full"><span>Source / event (prefixed to each note)</span>
+                  <input value={context} onChange={e => setContext(e.target.value)} placeholder="e.g. Barclays Energy Panel"/></label>
+              </div>
+              {recs.length === 0 && msgBox('#FFF7ED', '#9A3412', 'No startups were found in these notes.')}
+              {recs.map((r, i) => (
+                <div key={i} style={{ border:'1px solid var(--edf-grey-200)', borderRadius:12, padding:'14px 16px',
+                  opacity: r.include ? 1 : 0.5, background: r.include ? 'var(--edf-white)' : 'var(--edf-grey-100)' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom: r.include ? 12 : 0 }}>
+                    <input type="checkbox" checked={r.include} onChange={e => upd(i, 'include', e.target.checked)}
+                      title="Include this startup" style={{ width:16, height:16 }}/>
+                    <input value={r.name} onChange={e => upd(i, 'name', e.target.value)}
+                      style={{ flex:1, fontSize:15, fontWeight:700, color:'var(--edf-blue-deep)', border:'1px solid transparent',
+                        borderRadius:6, padding:'4px 6px', background:'transparent', fontFamily:'inherit' }}/>
+                    {r.website && <a href={r.website} target="_blank" rel="noopener noreferrer" style={{ fontSize:11 }}>visit ↗</a>}
+                  </div>
+                  {r.include && (
+                    <>
+                      {r.existing_match && (
+                        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:12,
+                          padding:'8px 12px', borderRadius:8, background:'#FFF7ED', fontSize:12, color:'#9A3412' }}>
+                          <span>Looks like <b>{r.existing_match}</b> is already in the database.</span>
+                          <select value={r.action} onChange={e => upd(i, 'action', e.target.value)}
+                            style={{ marginLeft:'auto', fontSize:12, padding:'4px 6px', borderRadius:6, border:'1px solid #FDBA74' }}>
+                            <option value="merge">Add note &amp; fill blanks on existing</option>
+                            <option value="add">Add as a separate startup</option>
+                          </select>
+                        </div>
+                      )}
+                      <div className="form-grid">
+                        <label><span>Website<WebTag rec={r} field="website"/></span>
+                          <input value={r.website} onChange={e => upd(i, 'website', e.target.value)} placeholder="https://…"/></label>
+                        <label><span>Country<WebTag rec={r} field="country"/></span>
+                          <input value={r.country} onChange={e => upd(i, 'country', e.target.value)}/></label>
+                        <label><span>Category<WebTag rec={r} field="category"/></span>
+                          <select value={r.category} onChange={e => upd(i, 'category', e.target.value)}>
+                            <option value="">— Uncategorised —</option>
+                            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select></label>
+                        <label><span>Status</span>
+                          <select value={r.status} onChange={e => upd(i, 'status', e.target.value)}>
+                            {REAL_STATUSES.map(st => <option key={st} value={st}>{st}</option>)}
+                          </select></label>
+                        <label><span>Contact</span>
+                          <input value={r.key_contact} onChange={e => upd(i, 'key_contact', e.target.value)}/></label>
+                        <label><span>Contact email</span>
+                          <input value={r.key_contact_email} onChange={e => upd(i, 'key_contact_email', e.target.value)}/></label>
+                        <label className="full"><span>Status comment</span>
+                          <input value={r.status_comment} onChange={e => upd(i, 'status_comment', e.target.value)}/></label>
+                        <label className="full"><span>Description<WebTag rec={r} field="description"/></span>
+                          <textarea rows="2" value={r.description} onChange={e => upd(i, 'description', e.target.value)}/></label>
+                        <label className="full"><span>Meeting note (saved as a dated note)</span>
+                          <textarea rows={Math.min(8, Math.max(2, (r.note.match(/\n/g) || []).length + 1))} value={r.note}
+                            onChange={e => upd(i, 'note', e.target.value)} style={{ fontFamily:'inherit', lineHeight:1.45 }}/></label>
+                      </div>
+                      <div className="chk-row" style={{ marginTop:10 }}>
+                        {BU_OPTIONS.map(bu => (
+                          <label key={bu} className="chk" style={{ padding:'3px 8px', fontSize:11,
+                            background: r.business_units.includes(bu) ? 'var(--edf-blue-deep)' : 'transparent',
+                            color: r.business_units.includes(bu) ? '#fff' : 'var(--edf-grey-700)' }}>
+                            <input type="checkbox" style={{ display:'none' }} checked={r.business_units.includes(bu)} onChange={() => toggleBU(i, bu)}/>{bu}
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+              {skipped.length > 0 && (
+                <div style={{ fontSize:12, color:'var(--edf-grey-500)' }}>
+                  <div className="form-section-title" style={{ marginBottom:6 }}>Not added (not startups)</div>
+                  {skipped.map((k, i) => <div key={i}>• <b>{k.name}</b> — {k.reason}</div>)}
+                </div>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-ghost btn-sm" onClick={() => setStage('input')}>← Back to notes</button>
+              <button type="button" className="btn-primary btn-sm" onClick={commit} disabled={saving || chosen.length === 0}
+                style={{ opacity: saving || chosen.length === 0 ? 0.5 : 1 }}>
+                {saving ? 'Saving…' : `Save ${chosen.length} to database`}
+              </button>
+            </div>
+          </>
+        )}
+
+        {stage === 'done' && outcome && (
+          <>
+            <div className="modal-body">
+              {outcome.added.length > 0 && msgBox('#E6F4E1', '#2F6420', `✓ Added ${outcome.added.length}: ${outcome.added.join(', ')}`)}
+              {outcome.merged.length > 0 && msgBox('#EFF6FF', '#1E3A8A', `✓ Updated ${outcome.merged.length} existing: ${outcome.merged.join(', ')}`)}
+              {outcome.errors.map((e, i) => <div key={i}>{msgBox('#FEF2F2', '#991B1B', `⚠ ${e}`)}</div>)}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-ghost btn-sm" onClick={() => { setNotes(''); setRecs([]); setStage('input'); }}>Add more notes</button>
+              <button type="button" className="btn-primary btn-sm" onClick={onClose}>Done</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AiPanel({ onClose, onDone }) {
   const [keyStatus, setKeyStatus]   = useState(null);
   const [apiKey, setApiKey]         = useState('');
@@ -1788,6 +2016,7 @@ function AiPanel({ onClose, onDone }) {
     if (entry.type === 'monthly_update') return `News update: ${(entry.updated||[]).length} of ${entry.checked||0} startups got notes`;
     if (entry.type === 'find_similar')   return `Found ${(entry.added||[]).length} similar to ${entry.seed}`;
     if (entry.type === 'fill_websites')  return `Filled ${(entry.updated||[]).length} missing websites`;
+    if (entry.type === 'notes_import')   return `From notes: added ${(entry.added||[]).length}, updated ${(entry.merged||[]).length}`;
     if (entry.type === 'fill_descriptions') return `Filled ${(entry.updated||[]).length} missing descriptions`;
     return entry.type;
   };
@@ -1920,6 +2149,7 @@ function App() {
   const [picked, setPicked] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showAI, setShowAI] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
   const [showNewPortfolio, setShowNewPortfolio] = useState(false);
   const [managePortfolio, setManagePortfolio] = useState(null);   // portfolio name string
 
@@ -2017,6 +2247,9 @@ function App() {
           <button className="nav-add" onClick={() => setShowAdd(true)}>
             <IcoPlus size={13}/> Add venture
           </button>
+          <button className="nav-add" onClick={() => setShowNotes(true)} title="Paste rough notes — Claude extracts the startups">
+            ✦ Add from notes
+          </button>
           <button onClick={() => setShowAI(true)}
             style={{ background:'none', border:'1px solid var(--edf-grey-200)', borderRadius:8,
               padding:'5px 11px', fontSize:12, fontWeight:700, cursor:'pointer',
@@ -2099,6 +2332,13 @@ function App() {
       {showAdd && (
         <VentureModal
           onClose={() => setShowAdd(false)}
+          onSaved={reload}
+        />
+      )}
+
+      {showNotes && (
+        <NotesImportModal
+          onClose={() => setShowNotes(false)}
           onSaved={reload}
         />
       )}
