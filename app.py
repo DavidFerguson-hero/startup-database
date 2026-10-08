@@ -2,7 +2,7 @@ from flask import Flask, render_template, jsonify, request, session, redirect, u
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
-import json, os, re, subprocess, secrets, math, threading, sys, platform, shutil
+import json, os, re, subprocess, secrets, math, threading, sys, platform, shutil, time
 import openpyxl
 from datetime import datetime
 from io import BytesIO
@@ -1270,6 +1270,19 @@ def api_ai_gap_stats():
                         'missing_descriptions': missing_desc, 'advanced_discussions': adv_count})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
+
+# ── Heartbeat (desktop app quits when no page has pinged for a while) ────────
+
+_last_heartbeat = time.time()
+
+@app.route('/api/heartbeat', methods=['GET', 'POST'])
+def api_heartbeat():
+    global _last_heartbeat
+    _last_heartbeat = time.time()
+    return jsonify({'ok': True, 'app': 'startup-scout'})
+
+def seconds_since_heartbeat():
+    return time.time() - _last_heartbeat
 
 # ── Health check (no auth — required by AWS ALB / ECS / App Runner) ──────────
 
